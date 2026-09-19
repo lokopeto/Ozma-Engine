@@ -3,7 +3,7 @@
 	<h3>Ozma Engine -- Work In Progress --</h3>
 </div>
 
-## Building Unique Worlds
+Building Unique Worlds
 <p><br></p>
 <p><br></p>
 
@@ -12,5 +12,5 @@ Build and run the samples:
 ```bash
 odin build .
 ./build
-./KotoEngine build "./internal/tests/<Put Test Folder Name Here>"
+./Ozma_Engine build "./internal/tests/<Put Test Folder Name Here>"
 ```
