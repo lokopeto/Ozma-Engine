@@ -1,0 +1,3 @@
+package koto
+
+AssetsModels :: enum {}

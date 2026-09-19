@@ -1,0 +1,1 @@
+Mundos são necessarios para permitir codigos locais

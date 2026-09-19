@@ -1,0 +1,12 @@
+[project]
+name = "KT Game"
+version = 0
+
+[render]
+frame_in_flight = 2
+fixed_update_frequency = 60
+swapchain_images = 3
+
+[worlds]
+terrain_limit = 10
+entities_limit = 1024

@@ -1,0 +1,7 @@
+[models/alyra/alyra.obj]
+type = "Model"
+worlds = {"overworld", "nether"}
+
+[models/522195/stadiumc.obj]
+type = "Model"
+worlds = {"overworld", "nether"}
