@@ -1,0 +1,11 @@
+internal/project_structure/models/*
+shared/*
+*.spv
+out/
+.zed/
+internal/tests/simple-renderer/assets/
+internal/tests/simple-renderer/.build/
+internal/tests/simple-renderer/out/
+Koto_Engine
+Ozma_Engine
+build
