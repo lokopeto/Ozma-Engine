@@ -1,0 +1,3 @@
+package oz
+
+WorldsNames :: enum {}

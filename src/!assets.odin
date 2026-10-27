@@ -1,3 +1,3 @@
-package koto
+package oz
 
 AssetsModels :: enum {}

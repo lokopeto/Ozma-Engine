@@ -5,7 +5,7 @@ import "core:os"
 import "core:math"
 import "core:strings"
 import vmath "core:math/linalg"
-import kt "KT:."
+import oz "ozma:."
 
 MovementData :: struct {
 	fly_vec: [3]f32,
@@ -14,7 +14,7 @@ MovementData :: struct {
 	pos_scalar : f32,
 	rot_scalar : f32,
 }
-movementSystem :: kt.System_Data(_SYSTEMS, _HANDLES, MovementData) {
+movementSystem :: oz.System_Data(_SYSTEMS, _HANDLES, MovementData) {
 	shared = false,
 	process = movementSystem_process,
 	process_late = movementSystem_process_late,
@@ -26,11 +26,11 @@ movementSystem :: kt.System_Data(_SYSTEMS, _HANDLES, MovementData) {
 	}
 }
 
-movementSystem_process :: proc(f: ^kt.FrameData, data: ^_SYSTEMS, h: ^_HANDLES) {
+movementSystem_process :: proc(f: ^oz.FrameData, data: ^_SYSTEMS, h: ^_HANDLES) {
 
 }
 
-movementSystem_process_fixed :: proc(f: ^kt.FrameData, data: ^_SYSTEMS, h: ^_HANDLES) {
+movementSystem_process_fixed :: proc(f: ^oz.FrameData, data: ^_SYSTEMS, h: ^_HANDLES) {
 	// fmt.println(h)
 	if !h.movementSystem.ok { return }
 	player := h.movementSystem.val._entity
@@ -38,9 +38,9 @@ movementSystem_process_fixed :: proc(f: ^kt.FrameData, data: ^_SYSTEMS, h: ^_HAN
 	dt_fixed := f32(f.render.dt.fixed)
 
 	pos := 0.01 * [?]f32{
-		(-kt.inputs["right"].value + kt.inputs["left"].value) * f32(f.render.dt.fixed),
-		(-kt.inputs["downward"].value + kt.inputs["upward"].value) * f32(f.render.dt.fixed),
-		(-kt.inputs["down"].value + kt.inputs["up"].value) * f32(f.render.dt.fixed)
+		(-oz.inputs["right"].value + oz.inputs["left"].value) * f32(f.render.dt.fixed),
+		(-oz.inputs["downward"].value + oz.inputs["upward"].value) * f32(f.render.dt.fixed),
+		(-oz.inputs["down"].value + oz.inputs["up"].value) * f32(f.render.dt.fixed)
 	}
 
 	old_player_pos := player.models[0].transform.position
@@ -50,9 +50,9 @@ movementSystem_process_fixed :: proc(f: ^kt.FrameData, data: ^_SYSTEMS, h: ^_HAN
 	f.render.camera.position = h.movementSystem.val.fly_vec + {0,10,-3}
 	f.render.camera.rotation = vmath.quaternion_from_euler_angle_x_f32(1)
 	
-	rotY := vmath.quaternion_angle_axis_f32(f32(kt.mouse.x) * 0.001, {0,1,0})
+	rotY := vmath.quaternion_angle_axis_f32(f32(oz.mouse.x) * 0.001, {0,1,0})
 	player.models[0].transform.rotation = rotY
 }
-movementSystem_process_late :: proc(f: ^kt.FrameData, data: ^_SYSTEMS, h: ^_HANDLES) {
+movementSystem_process_late :: proc(f: ^oz.FrameData, data: ^_SYSTEMS, h: ^_HANDLES) {
 
 }

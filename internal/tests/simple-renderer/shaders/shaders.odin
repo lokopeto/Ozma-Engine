@@ -1,8 +1,8 @@
 package shaders
 
-import kt "KT:."
+import oz "ozma:."
 
-state := kt.ShaderState{
+state := oz.ShaderState{
 	shaders = {
 		{
 			code = {

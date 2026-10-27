@@ -1,4 +1,4 @@
-package koto
+package oz
 
 import "core:encoding/hxa"
 import "core:math"
@@ -158,6 +158,7 @@ modelfile_parse :: proc(path: string, allocator: runtime.Allocator) -> (m: Model
 }
 */
 load_hxa :: proc(path: string, allocator: runtime.Allocator) -> (m: Model) {
+	context.allocator = allocator
 	path_abs, _ := os.get_absolute_path(path, allocator)
 	file, err := hxa.read_from_file(path_abs)
 
@@ -231,7 +232,11 @@ fence_info :: proc(signaled: bool) -> (r: vk.FenceCreateInfo) {
 	return
 }
 
-semaphore_info :: proc(type: enum {ORIGINAL, BINARY, TIMELINE} = .ORIGINAL, init_value: u64 = 0) -> (r: vk.SemaphoreCreateInfo) {
+semaphore_info :: proc(
+	type: enum {ORIGINAL, BINARY, TIMELINE} = .ORIGINAL, 
+	init_value: u64 = 0, 
+	allocator := context.allocator
+) -> (r: vk.SemaphoreCreateInfo) {
 	r = { sType = .SEMAPHORE_CREATE_INFO }
 	if type != .ORIGINAL {
 		r.pNext = &vk.SemaphoreTypeCreateInfo{
@@ -353,10 +358,13 @@ ImgUploadBulk_Info :: struct {
 cmdImg_UploadBulk :: proc(
 	cmd: vk.CommandBuffer,
 	data: [][][$N]u8, // [images][pixel][color]u8
-	info: ImgUploadBulk_Info
+	info: ImgUploadBulk_Info,
+	allocator: runtime.Allocator
 ) -> (buffer: vk.Buffer, ok: bool) #optional_ok {
 	len_data := len(data)
 	if len_data <= 0 { return }
+	context.allocator = allocator
+	
 	ok = true
 	
 	size: u32 = 0
@@ -456,4 +464,124 @@ print_column_3f32 := proc(m: vmath.Matrix3f32) {
 		m[0][1], m[1][1], m[2][1], "\n",
 		m[0][2], m[1][2], m[2][2], "\n",
 	)
+}
+
+screen_to_world :: proc(
+	coord: [3]f32,
+	resolution: [2]f32, 
+	projection, view: vmath.Matrix4x4f32
+) -> [3]f32 {
+	inv := vmath.matrix4x4_inverse(projection * view)
+	coord := [3]f32{
+		(2*coord.x / resolution.x) - 1,
+		(2*coord.y / resolution.y) - 1,
+		(2*coord.z) - 1
+	}
+	return {
+		coord.x * inv[0][0] + coord.y * inv[0][1] + coord.z * inv[0][2] + inv[0][3],
+		coord.x * inv[1][0] + coord.y * inv[1][1] + coord.z * inv[1][2] + inv[1][3],
+		coord.x * inv[2][0] + coord.y * inv[2][1] + coord.z * inv[2][2] + inv[2][3]
+	}
+}
+
+// transform :: proc "contextless"(
+transform :: proc (
+	pos := [3]f32{0,0,0},
+	rot_quat := vmath.QUATERNIONF32_IDENTITY,
+	scale := [3]f32{1,1,1},
+) -> (m : vmath.Matrix4f32) #no_bounds_check {
+
+	//Matrix = [Coluna][Linha]
+	m[3][0] = pos.x
+	m[3][1] = pos.y
+	m[3][2] = pos.z
+	// POSITION MATRIX
+	// [0, 0, 0, p.x]
+	// [0, 0, 0, p.y]
+	// [0, 0, 0, p.z]
+	// [0, 0, 0, 1  ]
+ 	
+	m[0][0] = scale.x
+	m[1][1] = scale.y
+	m[2][2] = scale.z
+	m[3][3] = 1
+	// SCALE MATRIX
+	// [s.x,   0,   0, p.x]
+	// [  0, s.y,   0, p.y]
+	// [  0,   0, s.z, p.z]
+	// [  0,   0,   0, 1  ]
+
+	m = vmath.matrix4_from_quaternion(rot_quat) * m
+	m[3][0] = pos.x
+	m[3][1] = pos.y
+	m[3][2] = pos.z	
+	return
+}
+// view ::  proc "contextless" (
+view ::  proc(
+	pos := [3]f32{0,0,0},
+	rot_quat := vmath.QUATERNIONF32_IDENTITY,
+	scale := [3]f32{1,1,1},
+) -> (m : vmath.Matrix4f32) #no_bounds_check {
+	//Matrix = [Column][Line]
+	//       = [Line, Column]
+	m[3][0] = pos.x
+	m[3][1] = -pos.y
+	m[3][2] = pos.z
+	// POSITION MATRIX
+	// [0, 0, 0, p.x]
+	// [0, 0, 0, p.y]
+	// [0, 0, 0, p.z]
+	// [0, 0, 0, 1  ]
+ 			
+	m[0][0] = -scale.x
+	m[1][1] = scale.y
+	m[2][2] = -scale.z
+	m[3][3] = -1
+	// SCALE MATRIX
+	// [s.x,   0,   0, p.x]
+	// [  0, s.y,   0, p.y]
+	// [  0,   0, s.z, p.z]
+	// [  0,   0,   0, 1  ]
+
+	m = vmath.matrix4_from_quaternion(rot_quat) * m	
+	return
+}
+
+proj :: proc(fov, aspect, near, far: f32, is_orthographic := false) -> (m: vmath.Matrix4f32) #no_bounds_check {
+	if is_orthographic == true {
+		m = orthographic(fov, aspect, near, far)
+	} else {
+		m = perspective(fov, aspect, near, far)
+	}
+	return
+}
+
+
+perspective :: proc(fov_raw, aspect, near, far: f32) -> 
+	(m : vmath.Matrix4f32) #no_bounds_check {
+	// make more accurate
+	fov := math.tan(0.002 * fov_raw)
+	// adjust the aspect ratio
+	m[0][0] = 1 / (aspect * fov) // without the aspect the mesh is streched
+	m[1][1] = -1 / (fov) // -1 to flip it
+
+	m[2][2] = 1 / (near - far)
+	m[3][2] = -near / (near - far)
+	m[2][3] = -1
+	return
+}
+orthographic :: proc(fov, aspect, near, far: f32) -> 
+	(m : vmath.Matrix4f32) #no_bounds_check {
+	vertical := math.tan(0.002 * fov)
+	horizontal := vertical / aspect
+	// m = vmath.matrix4_inverse_f32(m)
+
+	m[0][0] = horizontal
+	m[1][1] = -vertical
+	m[2][2] = 1 / (near - far)
+	m[3][2] = -near / (near - far)
+
+	m[3][3] = -1
+	return
 }

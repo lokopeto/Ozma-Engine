@@ -20,19 +20,20 @@
 - [ ] mipmap
 - [ ] mais controle sobre textura
 - [ ] Gpu texture ordering
-- [ ] Implementar Box3D
+- [x] Implementar Box3D
 - [ ] Dynamic Box3D Collision Geometry
 - [ ] Pathfinding "ANYA"
 - [ ] imgui/nuklear
 - [ ] Sistema de save por mundo
 - [ ] Async Compute
 - [x] Vulkan Local Scope
+- [ ] ~~[Frame Pacing](https://docs.vulkan.org/features/latest/features/proposals/VK_EXT_present_timing.html)~~ (Minha gpu não suporta.. ;-;)
 
 ## Projeto
 - [x] Estrutura de projeto
 - [ ] Ferramentas
 - [ ] Reemplementar Virtual Files (Dagor)
-- [ ] ~~DasLang~~
+- [ ] ~~DasLang~~ (Odin é simples o suficiente)
 - [x] Arquivo de Config
 - [ ] Compressão de Mesh
 
@@ -40,7 +41,10 @@
 - [ ] Separação por mundos
 - [x] Funções de Entitidade
 - [x] Funções de Terrenos
-- [ ] Memoria Contigua (Remover Handle Map)
+- [x] Memoria Contigua (Remover Handle Map)
+- [ ] Multithread
+
+
 ### COISAS PARA ARRUMAR
 - [x] Dar um jeito nas funções em global scope
 - [x] Arrumar UV
@@ -54,7 +58,7 @@
 
 ### Conceito
 #### Terreno
-Parte do mundo, funciona como "Chunks", ele não descarrega as entidades, apenas pausa ou diminui a frequencia de atualização das entitades, e os assets são descarregados de um jeito lazy, colocando em caches aqueles que não são frequentemente usados
+Parte do mundo, funciona como "Chunks", ele não descarrega as entidades, apenas pausa ou diminui a frequencia de atualização das entidades, e os assets são descarregados de um jeito lazy, colocando em caches aqueles que não são frequentemente usados
 ##### Flags Entidades
 - `TEMPORARY` 
 	a entidade é deletada, util para efeitos visuais

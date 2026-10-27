@@ -1,16 +1,12 @@
-package koto
+package oz
 
 import hm "core:container/handle_map"
 import vk "vendor:vulkan"
 import "core:fmt"
 import "core:os"
 
-Universe :: struct {
-	worldsIndex: WorldIndex,
-	assets: []Asset,
-	current_world: LoadedWorld
-}
-WorldIndex :: map[string][]int
+UniAssets :: []Asset
+WorldIndex :: [WorldsNames][]int
 
 LoadedWorld :: struct {
 	using _world: World,

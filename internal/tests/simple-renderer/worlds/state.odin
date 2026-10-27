@@ -4,9 +4,9 @@ import "core:fmt"
 import "core:os"
 import "core:math"
 import "core:strings"
-import kt "KT:."
+import oz "ozma:."
 
 
-state :: kt.WorldState {
+state :: oz.WorldState {
 	initial_world = "overworld"
 }

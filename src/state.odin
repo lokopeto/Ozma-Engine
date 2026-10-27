@@ -1,4 +1,4 @@
-package koto
+package oz
 import vmath "core:math/linalg"
 import hm "core:container/handle_map"
 import "core:encoding/uuid"
@@ -7,6 +7,8 @@ import "core:time"
 import "base:runtime"
 
 import vk "vendor:vulkan"
+
+import phos "shared:Phos"
 
 KeyMapInput :: #sparse[Keys]string
 Camera :: struct{
@@ -20,11 +22,15 @@ Camera :: struct{
 }
 
 RenderState :: struct {
-	input: struct{
+	input_default: struct{
 		keyMap: KeyMapInput
 	},
 	camera: Camera,
-	window_info: WindowInfo,
+	window_info: struct{
+		using info: WindowInfo,
+		resolution: [2]u32,
+		name: string,
+	},
 	texture : struct {
 		sampler : Sampler
 	},
@@ -35,17 +41,12 @@ ShaderState :: struct {
 	config : Create_Shader_config
 }
 
-
-
-uni: Universe
-
 WorldFrame :: struct {
 	using _ : LoadedWorld,
 	using _state : WorldState,
 }
-
 WorldState :: struct {
-	initial_world : string
+	initial_world : WorldsNames
 }
 
 Asset :: struct{
@@ -59,10 +60,7 @@ Asset :: struct{
  flags: bit_set[enum{}],
 }
 
-Handle :: hm.Handle64
-
 Entity :: struct {
-	handle: Handle,
 	systems: SystemsToggler,
 	
 	_internal: struct {
@@ -70,14 +68,10 @@ Entity :: struct {
 		id_local: uuid.Identifier,
 		id_public: uuid.Identifier,
 	},
-	models: [dynamic]Obj,
+	models: [dynamic; 32]phos.Handle,
 }
 
-Terrain :: struct {
-	update_freq: u32,
-	entities: hm.Dynamic_Handle_Map(Entity, Handle),
-}
-
+EntityBox :: phos.HandleBox(Entity)
 WorldsSound :: struct {
 
 }
@@ -90,8 +84,8 @@ WorldsTexture :: struct {
 
 
 World :: struct{
-	terrains: []Terrain,
-	systems : uintptr,
+	entities : EntityBox,
+	systems : rawptr,
 	assets: struct{
 		sounds: map[string]WorldsSound,
 		models: map[string]WorldsModel,
@@ -102,6 +96,7 @@ World :: struct{
 // model selector interface(?)
 Obj :: struct{
 	name: string,
+	model: AssetsModels,
 	transform: struct{
 		position: [3]f32,
 		rotation: vmath.Quaternionf32,
@@ -111,9 +106,8 @@ Obj :: struct{
 	// 	vertex:
 	// 	fragment:
 	// }
-	model: AssetsModels,
-	texture: []struct{
-		from: enum{MODELS, USER},
-		texture: [3]u32
-	},
+	// texture: []struct{
+	// 	from: enum{MODELS, USER},
+	// 	texture: [3]u32
+	// },
 }

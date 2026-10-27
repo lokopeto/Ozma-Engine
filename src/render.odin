@@ -1,5 +1,6 @@
-package koto
+package oz
 
+import "base:intrinsics"
 import "core:slice"
 import "core:container/queue"
 import "core:c"
@@ -19,22 +20,25 @@ import "vendor:glfw"
 import vk "vendor:vulkan"
 
 import "shared:vma"
+import phos "shared:Phos"
 
 @(private) print := fmt.println
 
 // ================ INDIVIDUAL STRUCTS ================
 RenderFrame :: struct {
-	using state:       RenderState,
+	using _state:      RenderState,
 	using cmd:         Command,
-	using shaderBox: 	 ShaderBox,
-	swapchain:         Swapchain,
-	window:            []Window,
-	format_info:       FormatInfo,
-	info:    				   PhysicalDeviceInfo,
+	using shaderBox:   ShaderBox,
+
 	dt:                DeltaTime64,
 	dt32:              DeltaTime32,
 	dt16:              DeltaTime16,
-	userPointer:       any,
+
+	window:            Window,
+	present_result:    vk.Result,
+	models:            phos.HandleBox(Obj),
+	
+	userPointer:       rawptr,
 }
 
 DeltaTime :: struct(T: typeid) {
@@ -95,7 +99,7 @@ Command :: struct {
 
 // ================ GLOBAL GRAPHICS CONTEXT ================
 GraphicContext :: struct {
-	vulkan: Vulkan,
+	using vulkan: Vulkan,
 	physical: vk.PhysicalDevice,
 	info: PhysicalDeviceInfo,
 	formats: FormatInfo,
@@ -104,23 +108,13 @@ GraphicContext :: struct {
 }
 
 // ================ API SPECIFIC ================
-create_renderer :: proc(windowHandle: glfw.WindowHandle) -> (g: GraphicContext) {
-	g.vulkan, g.physical, g.info = vulkan_init()
+create_renderer :: proc(windowHandle: glfw.WindowHandle, allocator: runtime.Allocator) -> (g: GraphicContext) {
+	context.allocator = allocator
+	g.vulkan, g.physical, g.info = vulkan_init(allocator)
 	g.surface = glfwCreate_surface(&g.vulkan, g.physical, windowHandle)
-
-	g.formats = vkGet_Formats(g.physical, g.surface)
-	w,h := glfw.GetWindowSize(windowHandle)
-	g.swapchain = vkSwapchain_Create(&g.vulkan, g.surface,
-		{ 
-			{u32(w), u32(h)},
-			g.formats.capabilities.currentTransform,
-			g.formats.capabilities.minImageCount,
-		}
-	)
+	g.formats = vkGet_Formats(g.physical, g.surface, allocator)
 	return 
 }
-
-WINPOSITION_IDENTITY :: [2]int{ bits.INT_MAX, bits.INT_MAX }
 
 WindowInfo :: struct {
 	resizable: bool,
@@ -150,7 +144,7 @@ WINDOW_DEFAULT :: WindowInfo {
 	scale_to_monitor = false,
 	scale_framebuffer = false,
 	mouse_passthrough = false,
-	position = WINPOSITION_IDENTITY
+	position = {600, 800}
 }
 
 @(require_results)
@@ -210,109 +204,154 @@ destroy_window :: proc(handle: glfw.WindowHandle) {
 	glfw.Terminate()
 }
 
-@(private) winResize_callback: [dynamic]Window
-windowShouldClose :: proc(vulkan: ^Vulkan, physical: vk.PhysicalDevice, frame: ^RenderFrame) -> b32 {
-	@(static) swapchainOld_Queue: [dynamic]vk.SwapchainKHR
-  resized := false
+@(private) win_isResized: [dynamic; 128]Window
+windowShouldClose :: proc(
+	F: ^FrameData,
+) -> b32 {  
+	// 	frame.graphic.info.memory.budget.pNext = nil
+	//   prop := &vk.PhysicalDeviceMemoryProperties2 {
+	// 		sType = .PHYSICAL_DEVICE_MEMORY_PROPERTIES_2,
+	// 		pNext = &frame.graphic.info.memory.budget
+	// 	}
+	// 
+	// 	vk.GetPhysicalDeviceMemoryProperties2(frame.graphic.physical, prop)
 
-	frame.info.memory.budget.pNext = nil
-  prop := &vk.PhysicalDeviceMemoryProperties2 {
-		sType = .PHYSICAL_DEVICE_MEMORY_PROPERTIES_2,
-		pNext = &frame.info.memory.budget
-	}
+	return glfw.WindowShouldClose(F.render.window.handle)
+}
 
-	vk.GetPhysicalDeviceMemoryProperties2(physical, prop)
-
+pollEvents :: proc() {
 	glfw.PollEvents()
-	vk.DeviceWaitIdle(vulkan.device)
+}
 
+_swapchainRecriation :: proc(
+	F: ^FrameData,
+	swapchainOld: ^Swapchain,
+	allocator: runtime.Allocator
+) -> bool {
+  win : Window; index : u8
+	F.render.window.resized = false
+	vk.DeviceWaitIdle(F.graphic.vulkan.device)
+
+	for w, w_i in win_isResized {
+		if w.handle == F.render.window.handle && w.resized {
+			if w.resized == true {
+				win = w
+				F.render.window = w
+				index = u8(w_i)
+				break
+			}
+		}
+	}
+	if win.resized {
+		unordered_remove(&win_isResized, index)
+
+		vkSwapchain_Destroy(&F.graphic.vulkan, swapchainOld)
 	
-	for &winf, winf_i in frame.window {
-		winf.resized = false
-		for win, win_i in winResize_callback {
-			if win.handle == winf.handle {
-				if win.resized == true {
-					w,h := glfw.GetWindowSize(win.handle)
-					winf.resolution = { u32(w), u32(h) }
-					winf.resized = true
-					resized = true
-				}
-			}
-		}
-	}	
-	if resized {
-		if len(swapchainOld_Queue) > 0 {
-			for sc, sc_i in swapchainOld_Queue {
-				vk.DestroySwapchainKHR(vulkan.device,sc,nil)
-			}
-			clear_dynamic_array(&swapchainOld_Queue)
-		}
-		append(&swapchainOld_Queue, frame.swapchain.handle)
 		capabilities : vk.SurfaceCapabilitiesKHR
 		vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(
-			physical,
-			frame.swapchain.surface,
+			F.graphic.physical,
+			F.graphic.swapchain.surface,
 			&capabilities
 		)
-		
-		frame.swapchain = vkSwapchain_Create(
-			vulkan, 
-			frame.swapchain.surface, 
+		swapchainOld^ = F.graphic.swapchain
+
+		F.graphic.swapchain = vkSwapchain_Create(
+			&F.graphic.vulkan,
+			F.graphic.swapchain.surface,
 			{
 				minImageCount = capabilities.minImageCount,
-				resolution = frame.window[0].resolution,
+				resolution = F.render.window.resolution,
 				preTransform = capabilities.currentTransform
-			}, frame.swapchain.handle
+			}, allocator, F.graphic.swapchain.handle
 		)
 	}
+	return win.resized
+}
 
-	clear_dynamic_array(&winResize_callback)
-
-
-	@(static) mouse_scroll_reset: bool
-	if mouse_scroll_reset == true {
-		mouse.scroll.x = 0
-		mouse.scroll.y = 0
+_mouse_handler_reset :: struct {
+	scroll : bool,
+	click : [MouseButtons]InputStatus
+}
+_mouse_handler :: proc(m: ^Mouse, reset: ^_mouse_handler_reset) {
+	if reset.scroll == true {
+		m.scroll.x = 0
+		m.scroll.y = 0
 		
-		mouse_scroll_reset = false
+		reset.scroll = false
 	}
-	if mouse.scroll.x != 0 || mouse.scroll.y != 0 {
-		mouse_scroll_reset = true
+	if m.scroll.x != 0 || m.scroll.y != 0 {
+		reset.scroll = true
 	}
 
-
-	for name in input_callbackList_old {
-		input := &inputs[name]
+	for &mb, mb_i in mouse.buttons {
+		if mb == .PRESSED && reset.click[mb_i] == .PRESSED {
+			mb = .HOLDING
+		}
+	}
+	reset.click = mouse.buttons
+}
+_input_handler :: proc(
+	callback_old: ^[$N]string, 
+	callback: ^[dynamic;$N2]string, 
+	input_map: ^map[string]Input
+) {
+	size_total := N2*size_of(string)
+	for name in callback_old {
+		if name == "" {continue}
+		input := &input_map[name]
 		if input.value > 0 && input.status == .PRESSED {
 			input.status = .HOLDING
 		}
 	}
-	input_callbackList_old = make([]string, len(input_callbackList))
-	copy(input_callbackList_old, input_callbackList[:])
-	clear(&input_callbackList)
-
-	@(static) mouse_click_past: [MouseButtons]InputStatus
-	for &mb, mb_i in mouse.buttons {
-		if mb == .PRESSED && mouse_click_past[mb_i] == .PRESSED {
-			mb = .HOLDING
-		}
-	}
-	mouse_click_past = mouse.buttons
-
-	return glfw.WindowShouldClose(frame.window[0].handle)
+	intrinsics.mem_copy_non_overlapping(
+		callback_old, callback,
+		size_total
+	)
+	clear(callback)
 }
 
-keyMap: #sparse[Keys]string
+getResolution :: proc(window: Window) -> [2]u32 {
+	w,h := glfw.GetFramebufferSize(window.handle)
+	return {cast(u32)w,cast(u32)h}
+}
 
-cursor_visibility :: proc(win: Window,v: enum{NORMAL,HIDDEN,LOCKED}) {
+
+keyMap: #sparse[Keys]string
+CursorVisibilityStatus :: enum{NORMAL,HIDDEN,LOCKED,CONFINED}
+CursorVisibilityList :: [?]i32{
+	glfw.CURSOR_NORMAL,
+	glfw.CURSOR_HIDDEN,
+	glfw.CURSOR_DISABLED,
+	glfw.CURSOR_CAPTURED,
+}
+cursor_visibility_set :: proc(win: Window,v: CursorVisibilityStatus) {
 	switch v {
 		case .NORMAL:
 			glfw.SetInputMode(win.handle, glfw.CURSOR, glfw.CURSOR_NORMAL)
+			return
 		case .HIDDEN:
 			glfw.SetInputMode(win.handle, glfw.CURSOR, glfw.CURSOR_HIDDEN)
+			return
 		case .LOCKED:
 			glfw.SetInputMode(win.handle, glfw.CURSOR, glfw.CURSOR_DISABLED)
+			return
+		case .CONFINED:
+			glfw.SetInputMode(win.handle, glfw.CURSOR, glfw.CURSOR_CAPTURED)
+			return
 	}
+}
+cursor_visibility_get :: proc(win: Window) -> CursorVisibilityStatus {
+	switch glfw.GetInputMode(win.handle, glfw.CURSOR) {
+		case glfw.CURSOR_NORMAL:
+			return .NORMAL
+		case glfw.CURSOR_HIDDEN:
+			return .HIDDEN
+		case glfw.CURSOR_DISABLED:
+			return .LOCKED
+		case glfw.CURSOR_CAPTURED:
+			return .CONFINED
+	}
+	return nil
 }
 cursor_position_set :: proc(win: Window,x,y: f64) {
 	mouse.pos.xy = 0
@@ -323,11 +362,14 @@ cursor_position_set :: proc(win: Window,x,y: f64) {
 // ================ API SPECIFIC ================
 
 // ================ VULKAN ================
-vulkan_init :: proc() -> (
+vulkan_init :: proc(
+	allocator: runtime.Allocator,
+) -> (
 	vulkan: Vulkan, 
 	physical: vk.PhysicalDevice, 
-	info: PhysicalDeviceInfo
+	info: PhysicalDeviceInfo,
 ) {
+	context.allocator = allocator
 	// -- Vulkan Instance
 	vk.load_proc_addresses(rawptr(glfw.GetInstanceProcAddress))
 
@@ -342,9 +384,9 @@ vulkan_init :: proc() -> (
 	vulkan.instance, _ = vkInstanceInit(layers[:])
 
 	// -- Vulkan Device
-	physical, _ = vkGetDevice_Podium(&vulkan)
+	physical, _ = vkGetDevice_Podium(&vulkan, allocator)
 	
-	info = vkGet_Info(physical)
+	info = vkGet_Info(physical, allocator)
 	//Vulkan Queue
 	vulkan.queue, _ = vkDeviceQueueInit(
 		&vulkan,
@@ -381,7 +423,6 @@ vkInstanceInit :: proc(
 		applicationVersion = PROJECT_VERSION,
 		sType = .APPLICATION_INFO,
 	}
-	defer free(&application_info.pApplicationName)
 
 	glfw_ext := glfw.GetRequiredInstanceExtensions()
 	extensions: [dynamic]cstring
@@ -424,7 +465,8 @@ vkInstanceInit :: proc(
 	}
 	return 
 }
-vkGetDevice_Podium :: proc(vulkan: ^Vulkan) -> (handle: vk.PhysicalDevice, err: vk.Result) {
+vkGetDevice_Podium :: proc(vulkan: ^Vulkan, allocator: runtime.Allocator) -> (handle: vk.PhysicalDevice, err: vk.Result) {
+	context.allocator = allocator
 	// get the amount of devices
 	device_count: u32
 	if err = vk.EnumeratePhysicalDevices(vulkan.instance, &device_count, nil); err != .SUCCESS {
@@ -583,7 +625,8 @@ vkImmCMD_Destroy :: proc(device: vk.Device, cmd: ^Command) {
 // end of vulkan_init functions
 
 //saves info for later use
-vkGet_Info :: proc(physical: vk.PhysicalDevice) -> (info: PhysicalDeviceInfo) {
+vkGet_Info :: proc(physical: vk.PhysicalDevice, allocator: runtime.Allocator) -> (info: PhysicalDeviceInfo) {
+	context.allocator = allocator
 	features := new(vk.PhysicalDeviceFeatures2)
 	features.sType = .PHYSICAL_DEVICE_FEATURES_2
 	vk.GetPhysicalDeviceFeatures2(physical, features)
@@ -595,10 +638,10 @@ vkGet_Info :: proc(physical: vk.PhysicalDevice) -> (info: PhysicalDeviceInfo) {
 	descBuff_next.sType = .PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_PROPERTIES_EXT
 	descBuff_next.pNext = pushDesc_next
 
-
 	prop := new(vk.PhysicalDeviceProperties2)
 	prop.sType = .PHYSICAL_DEVICE_PROPERTIES_2
 	prop.pNext = descBuff_next
+
 	vk.GetPhysicalDeviceProperties2(physical, prop)
 
 	memBudget_next := new(vk.PhysicalDeviceMemoryBudgetPropertiesEXT)
@@ -667,8 +710,10 @@ FormatInfo :: struct {
 }
 vkGet_Formats :: proc(
 	physical: vk.PhysicalDevice, 
-	surface: vk.SurfaceKHR
+	surface: vk.SurfaceKHR,
+	allocator : runtime.Allocator
 ) -> (info: FormatInfo) {
+	context.allocator = allocator
 	format_count: u32
 	vk.GetPhysicalDeviceSurfaceFormatsKHR(
 		physical,
@@ -698,19 +743,17 @@ vkGet_Formats :: proc(
 
 Swapchain :: struct {
 	handle: vk.SwapchainKHR,
-	
-	// using render : struct{
-
-	// }
 	extent:       vk.Extent2D,
+	surface: 			vk.SurfaceKHR,
 	imageCount:   u32,
-	allocation:   vma.Allocation,
+
 	images:       []vk.Image,
 	views:        []vk.ImageView,
 	images_depth: []vk.Image,
 	views_depth:  []vk.ImageView,
+
 	semaphores:   []vk.Semaphore,
-	surface: 			vk.SurfaceKHR
+	images_depth_alloc: []vma.Allocation,
 }
 SwapchainInfo :: struct {
 	resolution : [2]u32,
@@ -723,8 +766,10 @@ vkSwapchain_Create :: proc(
 	vulkan: ^Vulkan, 
 	surface: vk.SurfaceKHR, 
 	info: SwapchainInfo,
+	allocator: runtime.Allocator,
 	oldSwapchain: vk.SwapchainKHR = 0,
 ) -> (swapchain: Swapchain) {
+	context.allocator = allocator
 
 	// print((g.vk.physical.formats))
 	
@@ -748,7 +793,6 @@ vkSwapchain_Create :: proc(
 			resolution.x,
 			resolution.y,
 		},
-		// pNext 					 = next,
 
 		imageArrayLayers = 1,
 		imageSharingMode = .EXCLUSIVE,
@@ -775,29 +819,33 @@ vkSwapchain_Create :: proc(
 		print("SwapChain Error:", err)
 	}
 
-	if err := vk.GetSwapchainImagesKHR(
+	err : vk.Result
+	err = vk.GetSwapchainImagesKHR(
 		vulkan.device,
 		swapchain.handle,
 		&swapchain.imageCount,
 		nil,
-	); err == .SUCCESS {
+	)
+
+	if err == .SUCCESS {
 		// for i, k in g.vk.swapchain.images {
 		// 	vk.DestroyImageView(vulkan.device, g.vk.swapchain.views[k], nil)
 		// 	vk.DestroySemaphore(vulkan.device, g.vk.swapchain.semaphores[k], nil)
 		// }
 		// delete(g.vk.swapchain.images[:])
 		
-		swapchain.images =       make([]vk.Image, swapchain.imageCount)
+		swapchain.images =       make([]vk.Image,     swapchain.imageCount)
 		swapchain.views =        make([]vk.ImageView, swapchain.imageCount)
-		swapchain.images_depth = make([]vk.Image, swapchain.imageCount)
+		swapchain.images_depth = make([]vk.Image,     swapchain.imageCount)
 		swapchain.views_depth =  make([]vk.ImageView, swapchain.imageCount)
+		swapchain.images_depth_alloc =  make([]vma.Allocation, swapchain.imageCount)
 		vk.GetSwapchainImagesKHR(
 			vulkan.device,
 			swapchain.handle,
 			&swapchain.imageCount,
 			raw_data(swapchain.images),
 		)
-		//print(swapchain.imageCount, "images in SwapChain")
+		// print(swapchain.imageCount, "images in SwapChain")
 	} else {
 		print("Error geting Swapchain Images:", err)
 	}
@@ -837,7 +885,7 @@ vkSwapchain_Create :: proc(
 			imageDepth_info,
 			allocDepth_info,
 			&swapchain.images_depth[i],
-			&swapchain.allocation,
+			&swapchain.images_depth_alloc[i],
 			nil
 		)
 		viewDepth_info := vk.ImageViewCreateInfo {
@@ -902,22 +950,25 @@ vkSwapchain_Create :: proc(
 }
 vkSwapchain_Destroy :: proc(
 	vulkan: ^Vulkan, 
-	swapchain: Swapchain
+	swapchain: ^Swapchain
 ) -> () {
 	vk.DestroySwapchainKHR(vulkan.device, swapchain.handle, nil)
 	for i in 0..<swapchain.imageCount {
-		vk.DestroyImage(vulkan.device,swapchain.images[i],nil)
-		vma.destroy_image(vulkan.vma,swapchain.images_depth[i],swapchain.allocation)
-
 		vk.DestroyImageView(vulkan.device,swapchain.views[i],nil)
 		vk.DestroyImageView(vulkan.device,swapchain.views_depth[i],nil)
 		vk.DestroySemaphore(vulkan.device,swapchain.semaphores[i],nil)
+		vma.destroy_image(vulkan.vma,swapchain.images_depth[i], swapchain.images_depth_alloc[i])
 	}
 	return
 }
 
 // draw is separated in 2 func for prepass and inline cmd Buffer
-vkRenderCommand_Create :: proc(vulkan: ^Vulkan, flight_frames := RENDER_FRAME_IN_FLIGHT) -> (frames: []Command) {
+vkRenderCommand_Create :: proc(
+	vulkan: ^Vulkan, 
+	allocator: runtime.Allocator,
+	flight_frames := RENDER_FRAME_IN_FLIGHT,
+) -> (frames: []Command) {
+	context.allocator = allocator
 	// Semaphore == wait for the GPU
 	// Fences		 == wait for the CPU
 	// Timeline Semaphore == GOAT
@@ -939,7 +990,6 @@ vkRenderCommand_Create :: proc(vulkan: ^Vulkan, flight_frames := RENDER_FRAME_IN
 			commandPool = f.pool,
 			sType = .COMMAND_BUFFER_ALLOCATE_INFO,
 		}
-
 		vk.AllocateCommandBuffers(vulkan.device, &cmdBuff_info, &f.buffer)
 
 		semaphore_info := semaphore_info()
@@ -952,67 +1002,76 @@ vkRenderCommand_Create :: proc(vulkan: ^Vulkan, flight_frames := RENDER_FRAME_IN
 	return
 }
 
-vkDraw_prepare :: proc(vulkan: ^Vulkan, frame: ^RenderFrame) -> (imgIndex: u32) {
+vkDraw_prepare :: proc(F: ^FrameData) -> (imgIndex: u32) {
 	//===============================
 	//print("WaitForFences")
-	vk.WaitForFences(vulkan.device, 1, &frame.fence, true, max(u64))
+
+	vk.WaitForFences(F.graphic.vulkan.device, 1, &F.render.fence, true, max(u64))
+	vk.ResetFences  (F.graphic.vulkan.device, 1, &F.render.fence)
 	//print("WaitForFences", "OK")
 	// waits for the fences to sync the gpu with cpu
+	nextImage_info := vk.AcquireNextImageInfoKHR {
+		deviceMask = 1,
+		timeout = max(u64),
+		swapchain = F.graphic.swapchain.handle,
+		semaphore = F.render.semaphore,
+		// fence = F.fence,
+		
+		sType = .ACQUIRE_NEXT_IMAGE_INFO_KHR
+	}
 	vk.AcquireNextImage2KHR(
-		vulkan.device,
-		&vk.AcquireNextImageInfoKHR {
-			deviceMask = 1,
-			timeout = max(u64),
-			swapchain = frame.swapchain.handle,
-			semaphore = frame.semaphore,
-			sType = .ACQUIRE_NEXT_IMAGE_INFO_KHR
-		}, &imgIndex
+		 F.graphic.vulkan.device,
+		&nextImage_info,
+		&imgIndex
 	)
+	// gets the finished frame
+	// vk.WaitForFences(vulkan.device, 1, &F.fence, true, max(u64))
+	// vk.ResetFences(vulkan.device, 1, &F.fence)
+
 	//print("AcquireNextImage2KHR", "OK", "-", g.vk.swapchain.imageIndices)
 
-	// gets the finished frame
 	//print("ResetFences")
-	vk.ResetFences(vulkan.device, 1, &frame.fence)
 	//print("ResetFences", "OK")
 
 	//THE ULTRA MASTER BLASTER COMMAND BUFFERSSS!!!!!!!
-	vk.ResetCommandPool(vulkan.device, frame.cmd.pool, {})
+	vk.ResetCommandPool(F.graphic.vulkan.device, F.render.cmd.pool, {})
 
-	vk.BeginCommandBuffer(frame.cmd.buffer, &vk.CommandBufferBeginInfo {
+	vk.BeginCommandBuffer(F.render.cmd.buffer, &vk.CommandBufferBeginInfo {
 		flags = {.ONE_TIME_SUBMIT},
-		sType = .COMMAND_BUFFER_BEGIN_INFO
+		sType = .COMMAND_BUFFER_BEGIN_INFO,
 	})
 
 	return imgIndex
 }
-vkDraw_present :: proc(vulkan: ^Vulkan, frame: ^RenderFrame, imgIndex: ^u32) {
-	vk.EndCommandBuffer(frame.cmd.buffer)
+vkDraw_present :: proc(F: ^FrameData, imgIndex: ^u32) {
+	vk.EndCommandBuffer(F.render.cmd.buffer)
+
+	queueSubmit := vk.SubmitInfo {
+		sType = .SUBMIT_INFO,
+		pWaitDstStageMask = &vk.PipelineStageFlags{.ALL_COMMANDS},
+		pSignalSemaphores = &F.graphic.swapchain.semaphores[imgIndex^],
+		pWaitSemaphores = &F.render.semaphore,
+		waitSemaphoreCount = 1,
+		signalSemaphoreCount = 1,
+
+		pCommandBuffers = &F.render.cmd.buffer,
+		commandBufferCount = 1,
+	}
+	//print("QueueSubmit")
+	vk.QueueSubmit(F.graphic.vulkan.queue, 1, &queueSubmit, F.render.cmd.fence)
+	//print("QueueSubmit", "OK")
+	//print("QueuePresent")
 
 	present_info := vk.PresentInfoKHR {
 		sType              = .PRESENT_INFO_KHR,
 		waitSemaphoreCount = 1,
-		pWaitSemaphores    = &frame.swapchain.semaphores[imgIndex^],
+		pWaitSemaphores    = &F.graphic.swapchain.semaphores[imgIndex^],
 		swapchainCount     = 1,
-		pSwapchains        = &frame.swapchain.handle,
+		pSwapchains        = &F.graphic.swapchain.handle,
 		pImageIndices      = imgIndex,
 	}
-
-	queueSubmit := vk.SubmitInfo{
-		sType = .SUBMIT_INFO,
-		pWaitDstStageMask = &vk.PipelineStageFlags{.ALL_COMMANDS},
-		pSignalSemaphores = &frame.swapchain.semaphores[imgIndex^],
-		pWaitSemaphores = &frame.semaphore,
-		waitSemaphoreCount = 1,
-		signalSemaphoreCount = 1,
-
-		pCommandBuffers = &frame.cmd.buffer,
-		commandBufferCount = 1,
-	}
-	//print("QueueSubmit")
-	vk.QueueSubmit(vulkan.queue, 1, &queueSubmit, frame.cmd.fence)
-	//print("QueueSubmit", "OK")
-	//print("QueuePresent")
-	vk.QueuePresentKHR(vulkan.queue, &present_info)
+	F.render.present_result = vk.QueuePresentKHR(F.graphic.vulkan.queue, &present_info)
+	// assert(frame.present_result == .SUCCESS, fmt.tprint(frame.present_result))
 	//print("QueuePresent", "OK")
 	// submit the frame and displays it
 }
@@ -1125,7 +1184,7 @@ vkCreate_shaders :: proc(
 	device: vk.Device, 
 	info: ^[]Create_Shader_info, 
 	config: Create_Shader_config,
-	allocator := context.allocator
+	allocator : runtime.Allocator
 	) -> (
 		shaderBox: ShaderBox, 
 		err: VkCreateShaderError
@@ -1313,14 +1372,15 @@ vkCreate_shaders :: proc(
 			if len_info > 0 {		
 				shaders_len : u32
 				for &s, i in input.shaders {
-					// when ODIN_DEBUG {
-					// 	assert(input.name != "", "Name cannot be empty")
-					// }
+					when ODIN_DEBUG {
+						assert(input.name != "", "Name cannot be empty")
+					}
 					if !load_code(&s.code) { continue }
 
 					if s.code.os_error != os.General_Error.None {
 						err = .FILE; continue
 					}
+					shaders_len += 1
 					shader_compile = true
 					// print(i,shaders_info[i], "\n")
 				}
@@ -1360,7 +1420,7 @@ vkCreate_shaders :: proc(
 					assert(shaders_err == .SUCCESS, fmt.tprint("Error Compiling Shaders:", shaders_err))
 	
 					for inf, inf_i in input.shaders {
-						print(inf_i)
+						// print(inf_i)
 						if inf_i <= 1 { continue }
 						field := os.stem(
 							strings.trim_prefix(
@@ -1383,11 +1443,11 @@ vkCreate_shaders :: proc(
 }
 
 //Load and bind shader from relative path
-cmdload_shaders :: proc {
-	cmdload_shaders_main,
-	cmdload_shaders_entry,
+cmdLoad_Shaders :: proc {
+	cmdLoad_Shaders_Main,
+	cmdLoad_Shaders_Entry,
 }
-cmdload_shaders_entry :: proc(cmd: vk.CommandBuffer, shaders: ShaderBox, main_entry, entry: string) {
+cmdLoad_Shaders_Entry :: proc(cmd: vk.CommandBuffer, shaders: ShaderBox, main_entry, entry: string) {
 	shader := shaders.shaders[main_entry].shaders[entry]
 	when ODIN_DEBUG {
     assert(shader.ptr != 0, "Shader does not exist!")
@@ -1395,7 +1455,7 @@ cmdload_shaders_entry :: proc(cmd: vk.CommandBuffer, shaders: ShaderBox, main_en
 	vk.CmdBindShadersEXT(cmd, 1, &shader.stage, &shader.ptr)
 }
 ShaderMainEntry :: enum{Vertex, Fragment}
-cmdload_shaders_main :: proc(cmd: vk.CommandBuffer, shaders: ShaderBox, main_entry: string, stage: ShaderMainEntry) {
+cmdLoad_Shaders_Main :: proc(cmd: vk.CommandBuffer, shaders: ShaderBox, main_entry: string, stage: ShaderMainEntry) {
 	shader : ShaderGPU
 	switch stage {
 		case .Vertex: 
@@ -1515,9 +1575,10 @@ vkUpload_meshList :: proc(
 	vulkan: ^Vulkan,
 	path: []string,
 	info: UploadMeshListInfo,
-	allocator := context.allocator,
+	allocator: runtime.Allocator,
 ) -> (box: ModelBox) {
 	if len(path) <= 0 {return}
+	context.allocator = allocator
 	vkRecord_command(vulkan, &vulkan.immCmd)
 	box.models = make([]ModelGPU, len(path), allocator)
 	models := box.models[:]
@@ -1761,16 +1822,25 @@ Input :: struct{
 	status: InputStatus,
 	repeating: bool
 }
+INPUT_BUFFER_MAX :: 200
 inputs: map[string]Input
 inputs_old: map[string]Input
-input_callbackList := [dynamic]string{}
-input_callbackList_old := []string{}
+inputs_fixed: map[string]Input
+inputs_fixed_old: map[string]Input
+_input_callbackList: [dynamic; INPUT_BUFFER_MAX]string
+_input_callbackList_old: [INPUT_BUFFER_MAX]string
+_input_callbackList_fixed: [dynamic; INPUT_BUFFER_MAX]string
+_input_callbackList_fixed_old: [INPUT_BUFFER_MAX]string
+input_enable_fixed : bool
 glfwInput_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
 	context = runtime.default_context()
 
 	name := keyMap[Keys(key)]
 	if name != "" {
 		inputs_old[name] = inputs[name]
+		if input_enable_fixed {
+			inputs_fixed_old[name] = inputs_fixed[name]
+		}
 		input := Input{
 			value = f32(min(1,action)),
 			status = inputs[name].status
@@ -1792,8 +1862,11 @@ glfwInput_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action
 		}
 		
 		inputs[name] = input
-
-		append(&input_callbackList, name)
+		append(&_input_callbackList, name)
+		if input_enable_fixed {
+			inputs_fixed[name] = input
+			append(&_input_callbackList_fixed, name)
+		}
 		// print(name,key, scancode, inputs[name].status, inputs[name].value, inputs[name].repeating)
 	}
 }
@@ -1828,33 +1901,44 @@ Mouse :: struct{
 }
 
 mouse: Mouse
+@(private)
 glfwMouseButton_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i32) {
 	context = runtime.default_context()
 	mouse.buttons[MouseButtons(button)] = InputStatus(action)
 }
+@(private)
 glfwMousePos_callback :: proc "c" (window: glfw.WindowHandle, x,  y: f64) {
 	context = runtime.default_context()
 	mouse.x = x
 	mouse.y = y
 }
+@(private)
 glfwMouseScroll_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = runtime.default_context()
 	mouse.scroll.x = x
 	mouse.scroll.y = y
 }
+@(private)
 glfwMouseEnter_callback :: proc "c" (window: glfw.WindowHandle, entered: i32) {
 	context = runtime.default_context()
 	mouse.in_window = bool(entered)
 }
+@(private)
 glfwResize_callback :: proc "c" (window: glfw.WindowHandle, w: i32, h: i32) {
 	context = runtime.default_context()
-	append_elem(&winResize_callback, Window{
-		resized = true,
-		resolution = { u32(w), u32(h) },
-		handle = window
-	})
+	for win in win_isResized {
+		if win.handle == window && win.resized {
+			return
+		}
+	}
+	append(&win_isResized,
+		{
+			resized = true,
+			resolution = { u32(w), u32(h) },
+			handle = window
+		}
+	)
 }
-
 
 glfwCreate_surface :: proc(vulkan: ^Vulkan, physical: vk.PhysicalDevice, handle: glfw.WindowHandle) -> (surface: vk.SurfaceKHR) {
 	if glfw.GetPhysicalDevicePresentationSupport(vulkan.instance, physical, 0) {

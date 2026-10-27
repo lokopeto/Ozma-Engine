@@ -5,7 +5,7 @@ import "core:mem"
 import "core:os"
 import "core:strings"
 import "core:fmt"
-import kt "KT:."
+import oz "ozma:."
 
 import vk "vendor:vulkan"
 import "core:math"
@@ -15,7 +15,7 @@ import "shared:vma"
 
 @(private) print := fmt.println
 
-state := kt.RenderState {
+state := oz.RenderState {
 	camera = {
 		rotation = vmath.Quaternionf32(1),
 		position = {0,0,10},
@@ -53,12 +53,12 @@ state := kt.RenderState {
 		}
 	}
 }
-drawCMDS := kt.DrawCMDS{
+drawCMDS := oz.DrawCMDS{
 	rStart, rDrawScene, rEnd
 }
 
 
-rStart :: proc(F: kt.FrameData, f_index: u32) {
+rStart :: proc(F: oz.FrameData, f_index: u32) {
 	imgbarrier1 := vk.ImageMemoryBarrier2 {
 		sType = .IMAGE_MEMORY_BARRIER_2,
 		image = F.render.swapchain.images[f_index],
@@ -178,9 +178,9 @@ rStart :: proc(F: kt.FrameData, f_index: u32) {
 	}
 	vk.CmdBindDescriptorBuffersEXT(F.render.cmd.buffer,1,&descBind_info)
 
-	// kt.cmdload_shaders(F.render.cmd.buffer,F.render.shaderBox,"shader.comp")
-	kt.cmdload_shaders(F.render.cmd.buffer,F.render.shaderBox,"shader.frag")
-	kt.cmdload_shaders(F.render.cmd.buffer,F.render.shaderBox,"shader.vert")
+	// oz.cmdload_shaders(F.render.cmd.buffer,F.render.shaderBox,"shader.comp")
+	oz.cmdload_shaders(F.render.cmd.buffer,F.render.shaderBox,"shader.frag")
+	oz.cmdload_shaders(F.render.cmd.buffer,F.render.shaderBox,"shader.vert")
 
 	descBuff_i := []u32{0}
 	descBuff_off := []vk.DeviceSize{0}
@@ -188,8 +188,8 @@ rStart :: proc(F: kt.FrameData, f_index: u32) {
 }
 
 switch_uv: bool
-rDrawScene ::	proc(F: kt.FrameData, f_index: u32) {
-	if kt.inputs["switch"].status == .PRESSED {
+rDrawScene ::	proc(F: oz.FrameData, f_index: u32) {
+	if oz.inputs["switch"].status == .PRESSED {
 		if switch_uv {
 			switch_uv = false
 		}	else {
@@ -197,7 +197,7 @@ rDrawScene ::	proc(F: kt.FrameData, f_index: u32) {
 		}
 	}
 
-	v := kt.view(
+	v := oz.view(
 		F.render.camera.position,
 		F.render.camera.rotation,
 		F.render.camera.scale,
@@ -217,7 +217,7 @@ rDrawScene ::	proc(F: kt.FrameData, f_index: u32) {
 	// 	F.render.camera.far,
 	// 	F.render.camera.orthographic
 	// )
-	p := kt.proj(
+	p := oz.proj(
 		F.render.camera.fov,
 		f32(F.render.window[0].resolution.x) / f32(F.render.window[0].resolution.y),
 		F.render.camera.near,
@@ -239,7 +239,7 @@ rDrawScene ::	proc(F: kt.FrameData, f_index: u32) {
 			model := modelBox.models[m.model]
 			// print(F.worlds.current_world.models.models[m.].offsets)
 			if len(model.vertex) > 0 { // the "ok" function 
-				m := kt.transform(
+				m := oz.transform(
 					m.transform.position,
 					m.transform.rotation,
 					m.transform.scale
@@ -260,11 +260,11 @@ rDrawScene ::	proc(F: kt.FrameData, f_index: u32) {
 				// print(h, const.vextex_address)
 				// print("")
 				// print("Projection")
-				// kt.print_column(p)
+				// oz.print_column(p)
 				// print("View")
-				// kt.print_column(v)
+				// oz.print_column(v)
 				// print("Transform")
-				// kt.print_column(m)
+				// oz.print_column(m)
 
 				vk.CmdPushConstants(
 					F.render.cmd.buffer,
@@ -281,7 +281,7 @@ rDrawScene ::	proc(F: kt.FrameData, f_index: u32) {
 	// print("")
 }
 
-rEnd ::	proc(F: kt.FrameData, f_index: u32) {
+rEnd ::	proc(F: oz.FrameData, f_index: u32) {
 	vk.CmdEndRendering(F.render.cmd.buffer)
 
 	imgbarrier2 := vk.ImageMemoryBarrier2 {

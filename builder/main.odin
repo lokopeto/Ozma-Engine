@@ -18,7 +18,6 @@ import slang "../shared/odin-slang/slang"
 import "../src/"
 
 @(private) print := fmt.println
-build_srcFiles := #load_directory("../internal/build/export")
 
 commands :: []Command{
 	{
@@ -52,12 +51,12 @@ global: struct{
 			clean: bool `args:"name=clean" usage:"Clear files before the build"`,
 			quick: bool `args:"name=quick" usage:"Skips optimizations for fast compilation"`,
 			profiler: bool `args:"name=profiler" usage:"Inserts Tracy profiler at compilation level"`,
-			sanitizer: enum{
+			sanitize: enum{
 				_,
 				Address,
 				Memory,
 				Thread,
-			} `args:"name=sanitizer" usage:"Enable Sanitizer for catching leaks"`,
+			} `args:"name=sanitize" usage:"Enable Sanitizer for catching leaks"`,
 		}
 	},
 	args_len: int,
@@ -225,18 +224,27 @@ cmdBuild :: proc() {
 			)
 		}
 	}
-	
-	for f in build_srcFiles {
-		out, err := os.create(fmt.tprint(".build/", f.name, sep = ""))
-		if err != os.General_Error.None {
-			fmt.println(err, #location(out))
-		}
-		_, err = os.write(out, f.data)
-		if err != os.General_Error.None {
-			fmt.println(err, #location(out))
-		}
-	}
+	sep :: os.Path_Separator_String
 
+	{
+		file_cp := fmt.tprint(
+			".build",
+			"main.odin",
+			sep = sep
+		)
+		os.copy_file(
+			file_cp,
+			fmt.tprint(
+				global.exec_path,
+				"internal",
+				"build",
+				"main.odin",
+				sep = sep
+			)
+		)
+		// os.change_mode(file_cp, {.Read_Other, .Read_Group, .Read_User})
+	}
+	
 	out_path : string
 	//output folder
 	when ODIN_OS == .Windows {
@@ -249,7 +257,6 @@ cmdBuild :: proc() {
 		sep=""
 	)
 
-	sep :: os.Path_Separator_String
 	cmd: [dynamic]string
 	append(&cmd,
 		"odin", "build", //odin command
@@ -267,8 +274,8 @@ cmdBuild :: proc() {
 		fmt.tprint("-collection:gamebuild=", 
 			join_path(game_abs, ".build"),
 		sep=""),
-		fmt.tprint("-collection:KT=",
-			join_path(game_abs, ".build", "KT"),
+		fmt.tprint("-collection:ozma=",
+			join_path(game_abs, ".build", "ozma"),
 		sep=""),
 		fmt.tprint("-collection:codegen=",
 			join_path(game_abs, ".build", "codegen"),
@@ -289,7 +296,7 @@ cmdBuild :: proc() {
 	}
 	if !global.build.args.quick {
 		append(&cmd, 
-			"-o:aggressive",
+			"-o:speed",
 		)
 	}
 	if global.build.args.profiler {
@@ -298,7 +305,7 @@ cmdBuild :: proc() {
 			"-define:TRACY_CALLSTACK=20",
 		)
 	}
-	if int(global.build.args.sanitizer) != 0 {
+	if int(global.build.args.sanitize) != 0 {
 			type := [?]string{
 				"address",
 				"memory",
@@ -306,7 +313,7 @@ cmdBuild :: proc() {
 			}
 
 			append(&cmd, 
-				fmt.tprint("-sanitizer:",type[int(global.build.args.sanitizer) - 1], sep=""),
+				fmt.tprint("-sanitize:",type[int(global.build.args.sanitize) - 1], sep=""),
 			)
 	}
 

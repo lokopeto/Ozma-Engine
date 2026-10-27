@@ -1,4 +1,4 @@
-package koto
+package oz
 
 // adapted from gflw
 Keys :: enum  {

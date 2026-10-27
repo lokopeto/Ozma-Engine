@@ -1,4 +1,4 @@
-package koto
+package oz
 import vk "vendor:vulkan"
 import "core:mem"
 
@@ -20,6 +20,10 @@ EXTENSIONS :: []cstring{
 	vk.KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_EXTENSION_NAME,
 	vk.EXT_MEMORY_BUDGET_EXTENSION_NAME,
 	vk.EXT_MEMORY_PRIORITY_EXTENSION_NAME,
+	// vk.EXT_PRESENT_TIMING_EXTENSION_NAME,
+	// vk.KHR_PRESENT_ID_2_EXTENSION_NAME,
+	// vk.KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
+	// vk.KHR_CALIBRATED_TIMESTAMPS_EXTENSION_NAME,
 	// vk.KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME,
 	// vk.KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME,
 }
@@ -45,6 +49,19 @@ vkGet_Features :: proc() -> (next: rawptr) {
 		synchronization2 = true,
 		maintenance4 = true,
 	})
+	// next = new_feature(vk.PhysicalDevicePresentTimingFeaturesEXT {
+	// 	sType = .PHYSICAL_DEVICE_PRESENT_TIMING_FEATURES_EXT,
+	// 	pNext = next,
+	// 	presentTiming = true,
+	// 	presentAtAbsoluteTime = true,
+	// 	presentAtRelativeTime = true
+	// })
+	// next = new_feature(vk.PhysicalDevicePresentId2FeaturesKHR {
+	// 	sType = .PHYSICAL_DEVICE_PRESENT_ID_2_FEATURES_KHR,
+	// 	pNext = next,
+	// 	presentId2 = true
+	// })
+
 	next = new_feature(vk.PhysicalDeviceMemoryPriorityFeaturesEXT {
 		sType = .PHYSICAL_DEVICE_MEMORY_PRIORITY_FEATURES_EXT,
 		pNext = next,

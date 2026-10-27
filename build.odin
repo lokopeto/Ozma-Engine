@@ -18,18 +18,18 @@ main :: proc() {
 		"odin",
 		"build",
 		"builder",
-		"-out:."+S+"Ozma_Engine"+EXE,
+		"-out:."+S+"OzmaEngine"+EXE,
 		"-collection:shared=."+S+"shared",
 		"-show-timings",
 	}
 
-	when !#defined("FAST", false) {
+	when !#config(FAST, false) {
 		append(&command,"-o:speed")
 	}
 
 	fmt.println(command)
 	odin, stdout, stderr, err := os.process_exec({
-		command = command
+		command = command[:]
 	}, context.allocator
 	)
 	

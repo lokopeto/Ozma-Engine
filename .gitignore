@@ -8,4 +8,4 @@ internal/tests/simple-renderer/.build/
 internal/tests/simple-renderer/out/
 Koto_Engine
 Ozma_Engine
-build
+./build
