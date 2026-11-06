@@ -865,7 +865,7 @@ vkSwapchain_Create :: proc(
 	// my minimum is 4.. :>
 	imageDepth_info := vk.ImageCreateInfo {
 		extent = {info.resolution.x, info.resolution.y, 1},	
-		format = .D32_SFLOAT,
+		format = .D32_SFLOAT_S8_UINT,
 		imageType = .D2,
 		initialLayout = .UNDEFINED,
 		samples = {._1},
@@ -889,14 +889,14 @@ vkSwapchain_Create :: proc(
 			nil
 		)
 		viewDepth_info := vk.ImageViewCreateInfo {
-			format = .D32_SFLOAT,
+			format = .D32_SFLOAT_S8_UINT,
 			viewType = .D2,
 			image = swapchain.images_depth[i],
 			components = {.IDENTITY,.IDENTITY,.IDENTITY,.IDENTITY},
 			subresourceRange = {
 				layerCount = 1,
 				levelCount = 1,
-				aspectMask = {.DEPTH}
+				aspectMask = {.DEPTH, .STENCIL}
 			},
 			sType = .IMAGE_VIEW_CREATE_INFO
 		}

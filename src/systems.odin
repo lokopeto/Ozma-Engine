@@ -18,9 +18,9 @@ System :: struct($S, $I: typeid) {
 	end_world:       proc(f: ^FrameData, data: ^S, index: ^I),
 	oneshot: struct {
 		init:          proc(f: ^FrameData),
-		process:       proc(f: ^FrameData),
-		process_fixed: proc(f: ^FrameData),
-		process_late:  proc(f: ^FrameData),
+		process:       proc(f: ^FrameData, data: ^S),
+		process_fixed: proc(f: ^FrameData, data: ^S),
+		process_late:  proc(f: ^FrameData, data: ^S),
 		end:           proc(f: ^FrameData),
 	
 		init_world:    proc(f: ^FrameData),
@@ -28,15 +28,12 @@ System :: struct($S, $I: typeid) {
 	},
 	oneshotThread: struct {
 		init:          proc(f: ^FrameData, data: ^S),
-		process:       proc(f: ^FrameData, data: ^S),
-		process_fixed: proc(f: ^FrameData, data: ^S),
-		process_late:  proc(f: ^FrameData, data: ^S),
+		process_fixed: proc(f: ^FrameData, data: ^S, status: OneshotThreadStatus),
 		end:           proc(f: ^FrameData, data: ^S),
 	
 		init_world:    proc(f: ^FrameData, data: ^S),
 		end_world:     proc(f: ^FrameData, data: ^S),
 	}
-
 }
 
 System_Data :: struct($S, $I, $D: typeid) {
@@ -55,6 +52,12 @@ HMIndex :: struct($T: typeid) {
 	val: ^T,
 	h: phos.Handle,
 	ok: bool
+}
+
+OneshotThreadStatus :: struct {
+	is_last: bool,
+	is_first: bool,
+	num: int,
 }
 
 DrawCMD :: proc(frame: FrameData, f_index: u32)

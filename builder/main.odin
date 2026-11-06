@@ -18,6 +18,7 @@ import slang "../shared/odin-slang/slang"
 import "../src/"
 
 @(private) print := fmt.println
+sep :: os.Path_Separator_String
 
 commands :: []Command{
 	{
@@ -224,27 +225,42 @@ cmdBuild :: proc() {
 			)
 		}
 	}
-	sep :: os.Path_Separator_String
 
 	{
-		file_cp := fmt.tprint(
-			".build",
-			"main.odin",
-			sep = sep
-		)
+		file := "main.odin"
 		os.copy_file(
-			file_cp,
+			fmt.tprint(
+				".build",
+				file,
+				sep = sep
+			),
 			fmt.tprint(
 				global.exec_path,
 				"internal",
 				"build",
-				"main.odin",
+				file,
 				sep = sep
 			)
 		)
-		// os.change_mode(file_cp, {.Read_Other, .Read_Group, .Read_User})
 	}
-	
+	{	
+		file := "tracy.odin"
+		os.copy_file(
+			fmt.tprint(
+				".build",
+				file,
+				sep = sep
+			),
+			fmt.tprint(
+				global.exec_path,
+				"internal",
+				"build",
+				file,
+				sep = sep
+			)
+		)
+	}
+
 	out_path : string
 	//output folder
 	when ODIN_OS == .Windows {
@@ -306,15 +322,15 @@ cmdBuild :: proc() {
 		)
 	}
 	if int(global.build.args.sanitize) != 0 {
-			type := [?]string{
-				"address",
-				"memory",
-				"thread",
-			}
+		type := [?]string{
+			"address",
+			"memory",
+			"thread",
+		}
 
-			append(&cmd, 
-				fmt.tprint("-sanitize:",type[int(global.build.args.sanitize) - 1], sep=""),
-			)
+		append(&cmd, 
+			fmt.tprint("-sanitize:",type[int(global.build.args.sanitize) - 1], sep=""),
+		)
 	}
 
 	cmd_join := strings.join(cmd[:], " ")

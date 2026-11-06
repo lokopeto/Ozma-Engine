@@ -75,6 +75,11 @@ build_ProcList := []Build_ProcData{
 		pre	 = bpEngine,
 		pos	 = nil,
 	},
+	{
+		name = "Lib",
+		pre	 = bpLib,
+		pos	 = nil,
+	},
 }
 
 // ================================================
@@ -748,9 +753,11 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 		"SystemsToggler :: struct {",
 	)
 	out_sysIndex := builder_init("\n", 
+		"SystemsHandle :: struct{using _h : phos.Handle, thread: int}",
 		"SystemsIndex :: struct {",
 	)
-	out_sysInit := builder_init("\n", 
+	out_sysInit := builder_init("\n",
+		"NULL_SYSINDEX :: SystemsHandle{{phos.NULL_IDX, phos.NULL_IDX}, 0}",
 		"systemsInit :: proc() -> SystemsIndex {",
 		"return {",
 	)
@@ -789,13 +796,13 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 	)
 	
 	codegen_one_process := builder_init("",
-		"sysProcess_one :: proc(f: ^oz.FrameData) {"
+		"sysProcess_one :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {"
 	)
 	codegen_one_process_fixed := builder_init("",
-		"sysProcessFixed_one :: proc(f: ^oz.FrameData) {"
+		"sysProcessFixed_one :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {"
 	)
 	codegen_one_process_late := builder_init("", 
-		"sysProcess_late_one :: proc(f: ^oz.FrameData) {"
+		"sysProcess_late_one :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {"
 	)
 	codegen_one_initProcess := builder_init("",
 		"sysInitProcess_one :: proc(f: ^oz.FrameData) {",
@@ -810,20 +817,15 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 		"sysEndProcess_world_one :: proc(f: ^oz.FrameData) {",
 	)
 
-	codegen_oneThread_process := builder_init("",
-		"sysProcess_oneThread :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {"
-	)
-	codegen_oneThread_process_fixed := builder_init("",
-		"sysProcessFixed_oneThread :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {"
-	)
-	codegen_oneThread_process_late := builder_init("", 
-		"sysProcess_late_oneThread :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {"
-	)
+
 	codegen_oneThread_initProcess := builder_init("",
 		"sysInitProcess_oneThread :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {",
 	)
 	codegen_oneThread_endProcess := builder_init("",
 		"sysEndProcess_oneThread :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {",
+	)
+	codegen_oneThread_process_fixed := builder_init("",
+		"sysProcessFixed_oneThread :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS, s: oz.OneshotThreadStatus) {",
 	)
 	codegen_oneThread_initProcess_world := builder_init("",
 		"sysInitProcess_world_oneThread :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {",
@@ -898,13 +900,13 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 				"if gs.",a.name, ".s.oneshot.end_world != nil do gs.",a.name, ".s.oneshot.end_world(f)"
 			)		
 			builder_write(&codegen_one_process,"", 
-				"if gs.",a.name, ".s.oneshot.process != nil do gs.",a.name, ".s.oneshot.process(f)"
+				"if gs.",a.name, ".s.oneshot.process != nil do gs.",a.name, ".s.oneshot.process(f,d)"
 			)
 			builder_write(&codegen_one_process_fixed,"", 
-				"if gs.",a.name, ".s.oneshot.process_fixed != nil do gs.",a.name, ".s.oneshot.process_fixed(f)"
+				"if gs.",a.name, ".s.oneshot.process_fixed != nil do gs.",a.name, ".s.oneshot.process_fixed(f,d)"
 			)
 			builder_write(&codegen_one_process_late,"",
-				"if gs.",assignments[rev_len].name, ".s.oneshot.process_late != nil do gs.",assignments[rev_len].name, ".s.oneshot.process_late(f)"
+				"if gs.",assignments[rev_len].name, ".s.oneshot.process_late != nil do gs.",assignments[rev_len].name, ".s.oneshot.process_late(f,d)"
 			)
 		}
 
@@ -915,21 +917,16 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 			builder_write(&codegen_oneThread_endProcess,"", 
 				"if gs.",a.name, ".s.oneshotThread.end != nil do gs.",a.name, ".s.oneshotThread.end(f,d)"
 			)
+			builder_write(&codegen_oneThread_process_fixed,"", 
+				"if gs.",a.name, ".s.oneshotThread.process_fixed != nil do gs.",a.name, ".s.oneshotThread.process_fixed(f,d,s)"
+			)
 			builder_write(&codegen_oneThread_initProcess_world,"", 
 				"if gs.",a.name, ".s.oneshotThread.init_world != nil do gs.",a.name, ".s.oneshotThread.init_world(f,d)"
 			)
 			builder_write(&codegen_oneThread_endProcess_world,"", 
 				"if gs.",a.name, ".s.oneshotThread.end_world != nil do gs.",a.name, ".s.oneshotThread.end_world(f,d)"
 			)
-			builder_write(&codegen_oneThread_process,"", 
-				"if gs.",a.name, ".s.oneshotThread.process != nil do gs.",a.name, ".s.oneshotThread.process(f,d)"
-			)
-			builder_write(&codegen_oneThread_process_fixed,"", 
-				"if gs.",a.name, ".s.oneshotThread.process_fixed != nil do gs.",a.name, ".s.oneshotThread.process_fixed(f,d)"
-			)
-			builder_write(&codegen_oneThread_process_late,"",
-				"if gs.",assignments[rev_len].name, ".s.oneshotThread.process_late != nil do gs.",assignments[rev_len].name, ".s.oneshotThread.process_late(f,d)"
-			)
+
 		}
 
 		if a.data != "" {
@@ -938,10 +935,10 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 				a.name, ": bool,",
 			)
 			builder_write(&out_sysIndex, "",
-				a.name, ": phos.Handle,",
+				a.name, ": SystemsHandle,",
 			)
 			builder_write(&out_sysInit, "",
-				"{phos.NULL_IDX, phos.NULL_IDX},",
+				"NULL_SYSINDEX,",
 			)
 
 			// CODEGEN INLINE
@@ -964,17 +961,32 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 
 			builder_write(&codegenin_sysadd_procs, "",
 				"entity_system_add_",a.name," :: ",
-				"proc(f: ^oz.FrameData, s: ^_SYSTEMS, e: ^oz.Entity) -> (sys: ^oz.SystemBox(",a.data,")) {\n",
-				"	handle := e._internal.systems_index.",a.name,"\n",
+				"proc(f: ^oz.FrameData, s: rawptr, e: ^oz.Entity) -> (sys: ^oz.SystemBox(",a.data,")) {\n",
+				"	_h := e._internal.systems_index.",a.name,"\n",
+				"	h := _h._h\n",
+				"	t := _h.thread\n",
+				"	s_list := cast(^[]_SYSTEMS)s\n",
 
-				"	if phos.is_valid(&s.",a.name,", handle) {\n",
-				"		phos.remove(&s.",a.name,", handle)\n",
+				"	if phos.is_valid(&s_list[t].",a.name,", h) {\n",
+				"		phos.remove(&s_list[t].",a.name,", h)\n",
 				"	}\n",
 				
-				"	handle, sys = phos.add(&s.",a.name,")\n",
+				"	lowest_num 		: int = max(int)\n",
+				"	lowest_thread : int\n",
+				"	for s,s_i in s_list {\n",
+				"		s := s\n",
+				"		s_len := phos.len(&s.",a.name,")\n",
+				"		if s_len < lowest_num { \n",
+				"			lowest_num = s_len\n",
+				"			lowest_thread = s_i\n",
+				"		}\n",
+				"	}\n",
+				"	s := &s_list[lowest_thread]\n",
+
+				"	h, sys = phos.add(&s.",a.name,")\n",
 				"	sys._entity = e\n",
 				"	if systems.",a.name,".data_init != nil do sys._data = systems.",a.name,".data_init(f,s,e)\n",
-				"	e._internal.systems_index.",a.name," = handle\n",
+				"	e._internal.systems_index.",a.name," = {h, lowest_thread}\n",
 
 				"	e.systems.",a.name," = true\n",
 				"	return\n",
@@ -983,7 +995,7 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 			builder_write(&codegenin_sysadd_procs, "",
 				"get_data_",a.name," :: ",
 				"proc(f: ^oz.WorldFrame, e: ^oz.Entity) -> (^oz.SystemBox(",a.data,"),bool) {\n",
-				"	return phos.get_data(&(cast(^_SYSTEMS)(f.systems)).",a.name,",e._internal.systems_index.",a.name,")\n",
+				"	return phos.get_data(&((cast(^[]_SYSTEMS)(f.systems))[e._internal.systems_index.",a.name,".thread]).",a.name,",e._internal.systems_index.",a.name,")\n",
 				"}"
 			)
 			builder_write(&codegenin_sysrem, "", 
@@ -992,7 +1004,7 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 				"			sys,_ := phos.get_data(&s.",a.name,",e._internal.systems_index.",a.name,")\n",
 				"			if systems.",a.name,".data_end != nil do systems.",a.name,".data_end(f,s,e,sys)\n",
 				"			if phos.remove(&s.",a.name,", e._internal.systems_index.",a.name,") {\n",
-				"				e._internal.systems_index.",a.name," = {phos.NULL_IDX, phos.NULL_IDX}\n",
+				"				e._internal.systems_index.",a.name," = oz.NULL_SYSINDEX\n",
 				"			}",
 			)
 			// BUILD
@@ -1075,11 +1087,9 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 	builder_finalize(&codegen,&codegen_one_endProcess_world, "}\n")
 
 	// PROCESS THREAD ONE \\
-	builder_finalize(&codegen,&codegen_oneThread_process, "}\n")
-	builder_finalize(&codegen,&codegen_oneThread_process_late, "}\n")
-	builder_finalize(&codegen,&codegen_oneThread_process_fixed, "}\n")
 	builder_finalize(&codegen,&codegen_oneThread_initProcess, "}\n")
 	builder_finalize(&codegen,&codegen_oneThread_endProcess, "}\n")
+	builder_finalize(&codegen,&codegen_oneThread_process_fixed, "}\n")
 	builder_finalize(&codegen,&codegen_oneThread_initProcess_world, "}\n")
 	builder_finalize(&codegen,&codegen_oneThread_endProcess_world, "}\n")
 	
@@ -1324,4 +1334,63 @@ bpConfig :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.All
 	)
 	data[data_index].data = config_map
 	return
+}
+
+// ================================================
+// BUILDER CONFIG
+// ================================================
+bpLib :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Allocator) {
+	if global.build.args.profiler {
+		fmt.print("Tracy: ")
+		when ODIN_OS == .Linux {
+			file := "tracy.so"
+			dst := fmt.tprint(
+				global.build.output_folder,
+				file,
+				sep = sep
+			)
+			src := fmt.tprint(
+				global.exec_path,
+				"shared",
+				"tracy",
+				file,
+				sep = sep
+			)
+	
+			if !os.exists(src) {
+				fmt.print("Compiling - ")
+				tracy_state,
+				tracy_stdout,
+				tracy_stderr,
+				tracy_err := os.process_exec(
+					{
+						command = {
+							fmt.tprint(
+								global.exec_path,
+								"shared",
+								"tracy",
+								"build_linux.sh",
+							sep=sep),
+						},
+						working_dir = fmt.tprint(
+							global.exec_path,
+							"shared",
+							"tracy",
+							sep = sep
+						)
+					}, context.allocator
+				)
+				if tracy_state.exit_code != 0 {
+					print_error(
+						tracy_stdout,
+						tracy_stderr,
+						"\nCode: ",tracy_state.exit_code
+					)
+				}
+			}
+			fmt.print("Copying")
+			os.copy_file(dst, src)
+		}
+		fmt.println()
+	}
 }
