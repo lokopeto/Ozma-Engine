@@ -1,5 +1,5 @@
 <div>
-	<img width="160" alt="logo" align="left" src="https://github.com/lokopeto/assets/blob/master/Ozma/logo.png"/>
+	<img width="160" alt="logo" align="left" src="https://github.com/lokopeto/assets/blob/master/Ozma/Logo.png"/>
 	<h3>Ozma Engine -- Work In Progress --</h3>
 </div>
 
