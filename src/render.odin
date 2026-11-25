@@ -11,6 +11,7 @@ import "core:image"
 import "core:mem"
 import "core:os"
 import "core:math"
+import vmath "core:math/linalg"
 import "core:strings"
 import "core:time"
 
@@ -24,21 +25,99 @@ import phos "shared:Phos"
 
 @(private) print := fmt.println
 
-// ================ INDIVIDUAL STRUCTS ================
+
+///////////////////////////
+// STATE
+///////////////////////////
+RenderState :: struct {
+	input_default: struct{
+		keyMap: KeyMapInput
+	},
+	camera: Camera,
+	window_info: struct{
+		using info: WindowInfo,
+		resolution: [2]u32,
+		name: string,
+	},
+	texture : struct {
+		sampler : Sampler
+	},
+}
+
+ShaderState :: struct {
+	shaders : []Create_Shader_info,
+	config : Create_Shader_config
+}
+
+KeyMapInput :: #sparse[Keys]string
+Camera :: struct{
+	rotation : vmath.Quaternionf32,
+	position : [3]f32,
+  scale : [3]f32,
+	fov: f32,
+	near: f32,
+	far: f32,
+	orthographic: bool,
+}
+///////////////////////////
+
+///////////////////////////
+// FRAME
+///////////////////////////
 RenderFrame :: struct {
 	using _state:      RenderState,
-	using cmd:         Command,
 	using shaderBox:   ShaderBox,
-
-	dt:                DeltaTime64,
-	dt32:              DeltaTime32,
-	dt16:              DeltaTime16,
 
 	window:            Window,
 	present_result:    vk.Result,
 	models:            phos.HandleBox(Obj),
-	
-	userPointer:       rawptr,
+}
+
+RenderFrameLocal :: struct {
+	using cmd  : Command,
+	_deltatime : DeltaTimeData,
+	dt:   DeltaTime64,
+	dt32: DeltaTime32,
+	dt16: DeltaTime16,
+}
+DeltaTimeData :: struct {
+ frame_i     : int,
+ time_now    : time.Tick,
+ time_past   : time.Tick,
+ fixed_accum : f64,
+ fixed_dt    : f64,
+}
+
+GraphicContext :: struct {
+	using vulkan: Vulkan,
+	physical: vk.PhysicalDevice,
+	info: PhysicalDeviceInfo,
+	formats: FormatInfo,
+	surface: vk.SurfaceKHR,
+	swapchain: Swapchain,	
+}
+///////////////////////////
+
+
+///////////////////////////
+// DEFINITIONS
+///////////////////////////
+Obj :: struct{
+	name: string,
+	model: AssetsModels,
+	transform: struct{
+		position: [3]f32,
+		rotation: vmath.Quaternionf32,
+		scale: [3]f32,
+	},
+	// shaders: struct{
+	// 	vertex:
+	// 	fragment:
+	// }
+	// texture: []struct{
+	// 	from: enum{MODELS, USER},
+	// 	texture: [3]u32
+	// },
 }
 
 DeltaTime :: struct(T: typeid) {
@@ -51,6 +130,7 @@ DeltaTime :: struct(T: typeid) {
 DeltaTime64 :: DeltaTime(f64)
 DeltaTime32 :: DeltaTime(f32)
 DeltaTime16 :: DeltaTime(f16)
+
 Window :: struct {
 	resolution: [2]u32,
 	resized: bool,
@@ -96,16 +176,7 @@ Command :: struct {
 	buffer: vk.CommandBuffer,
 	pool: vk.CommandPool
 }
-
-// ================ GLOBAL GRAPHICS CONTEXT ================
-GraphicContext :: struct {
-	using vulkan: Vulkan,
-	physical: vk.PhysicalDevice,
-	info: PhysicalDeviceInfo,
-	formats: FormatInfo,
-	surface: vk.SurfaceKHR,
-	swapchain: Swapchain,	
-}
+///////////////////////////
 
 // ================ API SPECIFIC ================
 create_renderer :: proc(windowHandle: glfw.WindowHandle, allocator: runtime.Allocator) -> (g: GraphicContext) {
@@ -1002,19 +1073,19 @@ vkRenderCommand_Create :: proc(
 	return
 }
 
-vkDraw_prepare :: proc(F: ^FrameData) -> (imgIndex: u32) {
+vkDraw_prepare :: proc(F: ^FrameData, FL: ^FrameDataLocal) -> (imgIndex: u32) {
 	//===============================
 	//print("WaitForFences")
 
-	vk.WaitForFences(F.graphic.vulkan.device, 1, &F.render.fence, true, max(u64))
-	vk.ResetFences  (F.graphic.vulkan.device, 1, &F.render.fence)
+	vk.WaitForFences(F.graphic.vulkan.device, 1, &FL.render.fence, true, max(u64))
+	vk.ResetFences  (F.graphic.vulkan.device, 1, &FL.render.fence)
 	//print("WaitForFences", "OK")
 	// waits for the fences to sync the gpu with cpu
 	nextImage_info := vk.AcquireNextImageInfoKHR {
 		deviceMask = 1,
 		timeout = max(u64),
 		swapchain = F.graphic.swapchain.handle,
-		semaphore = F.render.semaphore,
+		semaphore = FL.render.semaphore,
 		// fence = F.fence,
 		
 		sType = .ACQUIRE_NEXT_IMAGE_INFO_KHR
@@ -1034,31 +1105,31 @@ vkDraw_prepare :: proc(F: ^FrameData) -> (imgIndex: u32) {
 	//print("ResetFences", "OK")
 
 	//THE ULTRA MASTER BLASTER COMMAND BUFFERSSS!!!!!!!
-	vk.ResetCommandPool(F.graphic.vulkan.device, F.render.cmd.pool, {})
+	vk.ResetCommandPool(F.graphic.vulkan.device, FL.render.cmd.pool, {})
 
-	vk.BeginCommandBuffer(F.render.cmd.buffer, &vk.CommandBufferBeginInfo {
+	vk.BeginCommandBuffer(FL.render.cmd.buffer, &vk.CommandBufferBeginInfo {
 		flags = {.ONE_TIME_SUBMIT},
 		sType = .COMMAND_BUFFER_BEGIN_INFO,
 	})
 
 	return imgIndex
 }
-vkDraw_present :: proc(F: ^FrameData, imgIndex: ^u32) {
-	vk.EndCommandBuffer(F.render.cmd.buffer)
+vkDraw_present :: proc(F: ^FrameData, FL: ^FrameDataLocal, imgIndex: ^u32) {
+	vk.EndCommandBuffer(FL.render.cmd.buffer)
 
 	queueSubmit := vk.SubmitInfo {
 		sType = .SUBMIT_INFO,
 		pWaitDstStageMask = &vk.PipelineStageFlags{.ALL_COMMANDS},
 		pSignalSemaphores = &F.graphic.swapchain.semaphores[imgIndex^],
-		pWaitSemaphores = &F.render.semaphore,
+		pWaitSemaphores = &FL.render.semaphore,
 		waitSemaphoreCount = 1,
 		signalSemaphoreCount = 1,
 
-		pCommandBuffers = &F.render.cmd.buffer,
+		pCommandBuffers = &FL.render.cmd.buffer,
 		commandBufferCount = 1,
 	}
 	//print("QueueSubmit")
-	vk.QueueSubmit(F.graphic.vulkan.queue, 1, &queueSubmit, F.render.cmd.fence)
+	vk.QueueSubmit(F.graphic.vulkan.queue, 1, &queueSubmit, FL.render.cmd.fence)
 	//print("QueueSubmit", "OK")
 	//print("QueuePresent")
 

@@ -273,6 +273,7 @@ cmdBuild :: proc() {
 		sep=""
 	)
 
+	// TODO : Make that as string builder
 	cmd: [dynamic]string
 	append(&cmd,
 		"odin", "build", //odin command

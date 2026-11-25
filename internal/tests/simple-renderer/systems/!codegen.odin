@@ -1,7 +1,7 @@
 package systems
 import oz "ozma:."
 import phos "shared:Phos"
-SYS_PROC_IDENTITY :: proc(f: ^oz.FrameData, data: ^_SYSTEMS, h: ^_HANDLES) {}
+SYS_PROC_IDENTITY :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, data: ^_SYSTEMS, h: ^_HANDLES) {}
 _SYSTEMS :: struct {
 
 movementSystem: _movementSystem,
@@ -75,7 +75,7 @@ entity_system_add_testSystem3 :: proc(f: ^oz.FrameData, s: rawptr, e: ^oz.Entity
 get_data_testSystem3 :: proc(f: ^oz.WorldFrame, e: ^oz.Entity) -> (^oz.SystemBox(TestData),bool) {
 	return phos.get_data(&((cast(^[]_SYSTEMS)(f.systems))[e._internal.systems_index.testSystem3.thread]).testSystem3,e._internal.systems_index.testSystem3)
 }
-entity_system_remove :: proc(f: ^oz.FrameData, s: ^_SYSTEMS, e: ^oz.Entity, d: _SYS_ENUM) {
+entity_system_remove :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, s: ^_SYSTEMS, e: ^oz.Entity, d: _SYS_ENUM) {
 	switch d {
 		case .movementSystem:
 			if !phos.is_valid(&s.movementSystem,e._internal.systems_index.movementSystem) {return}

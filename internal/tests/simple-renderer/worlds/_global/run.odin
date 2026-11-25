@@ -11,7 +11,7 @@ import oz "ozma:."
 import sys "game:systems"
 
 player : ^oz.Entity
-init :: proc(frame: ^oz.FrameData, vulkan: ^oz.Vulkan){
+init :: proc(frame: ^oz.FrameData){
 	oz.cursor_visibility(frame.render.window[0],.LOCKED)
 
 	player = oz.entity_create(&frame.worlds.terrains[0])
@@ -40,7 +40,7 @@ init :: proc(frame: ^oz.FrameData, vulkan: ^oz.Vulkan){
 	sys.entity_system_add(cast(^sys._SYSTEMS)frame.worlds.systems, player, sys.MovementData{
 	})
 }
-update :: proc(frame: ^oz.FrameData, vulkan: ^oz.Vulkan){
+update :: proc(frame: ^oz.FrameData){
 	// fmt.println(hm.get(&frame.worlds.terrains[0].entities, oz.Handle{1,1}))
 
 	// it := hm.iterator_make(&frame.worlds.terrains[0].entities)
@@ -71,7 +71,7 @@ update :: proc(frame: ^oz.FrameData, vulkan: ^oz.Vulkan){
 		})
 	}
 }
-update_fixed :: proc(frame: ^oz.FrameData, vulkan: ^oz.Vulkan) {
+update_fixed :: proc(frame: ^oz.FrameData) {
 	// fmt.println(player.models[0].transform.position)
 	
  	/*
@@ -116,9 +116,9 @@ update_fixed :: proc(frame: ^oz.FrameData, vulkan: ^oz.Vulkan) {
 	)
   */
 }
-update_late :: proc(frame: ^oz.FrameData, vulkan: ^oz.Vulkan){
+update_late :: proc(frame: ^oz.FrameData){
 
 }
-end :: proc(frame: ^oz.FrameData, vulkan: ^oz.Vulkan){
+end :: proc(frame: ^oz.FrameData){
 
 }

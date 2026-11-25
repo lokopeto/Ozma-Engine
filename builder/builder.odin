@@ -1,5 +1,6 @@
 package main
 
+import "core:reflect"
 import "core:crypto/_subtle"
 import "core:mem"
 import "core:slice"
@@ -687,7 +688,7 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 		"package systems",
 		"import oz \"ozma:.\"",
 		"import phos \"shared:Phos\"",
-		"SYS_PROC_IDENTITY :: proc(f: ^oz.FrameData, data: ^_SYSTEMS, h: ^_HANDLES) {}",
+		"SYS_PROC_IDENTITY :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, data: ^_SYSTEMS, h: ^_HANDLES) {}",
 	)
 	codegenin_struct := builder_init("",
 		"_SYSTEMS :: struct {\n"
@@ -740,7 +741,7 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 	// 	"entity_system_add :: proc {",
 	// )
 	codegenin_sysrem := builder_init("\n",
-		"entity_system_remove :: proc(f: ^oz.FrameData, s: ^_SYSTEMS, e: ^oz.Entity, d: _SYS_ENUM) {",
+		"entity_system_remove :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, s: ^_SYSTEMS, e: ^oz.Entity, d: _SYS_ENUM) {",
 		"	switch d {"
 	)
 
@@ -774,64 +775,64 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 	)
 
 	codegen_process := builder_init("",
-		"sysProcess :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {"
+		"sysProcess :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {"
 	)
 	codegen_process_fixed := builder_init("",
-		"sysProcessFixed :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {"
+		"sysProcessFixed :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {"
 	)
 	codegen_process_late := builder_init("", 
-		"sysProcess_late :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {"
+		"sysProcess_late :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {"
 	)
 	codegen_initProcess := builder_init("",
-		"sysInitProcess :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {",
+		"sysInitProcess :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {",
 	)
 	codegen_endProcess := builder_init("",
-		"sysEndProcess :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {",
+		"sysEndProcess :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {",
 	)
 	codegen_initProcess_world := builder_init("",
-		"sysInitProcess_world :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {",
+		"sysInitProcess_world :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {",
 	)
 	codegen_endProcess_world := builder_init("",
-		"sysEndProcess_world :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {",
+		"sysEndProcess_world :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS, i: ^gs._HANDLES) {",
 	)
 	
 	codegen_one_process := builder_init("",
-		"sysProcess_one :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {"
+		"sysProcess_one :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS) {"
 	)
 	codegen_one_process_fixed := builder_init("",
-		"sysProcessFixed_one :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {"
+		"sysProcessFixed_one :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS) {"
 	)
 	codegen_one_process_late := builder_init("", 
-		"sysProcess_late_one :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {"
+		"sysProcess_late_one :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS) {"
 	)
 	codegen_one_initProcess := builder_init("",
-		"sysInitProcess_one :: proc(f: ^oz.FrameData) {",
+		"sysInitProcess_one :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal) {",
 	)
 	codegen_one_endProcess := builder_init("",
-		"sysEndProcess_one :: proc(f: ^oz.FrameData) {",
+		"sysEndProcess_one :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal) {",
 	)
 	codegen_one_initProcess_world := builder_init("",
-		"sysInitProcess_world_one :: proc(f: ^oz.FrameData) {",
+		"sysInitProcess_world_one :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal) {",
 	)
 	codegen_one_endProcess_world := builder_init("",
-		"sysEndProcess_world_one :: proc(f: ^oz.FrameData) {",
+		"sysEndProcess_world_one :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal) {",
 	)
 
 
 	codegen_oneThread_initProcess := builder_init("",
-		"sysInitProcess_oneThread :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {",
+		"sysInitProcess_oneThread :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS) {",
 	)
 	codegen_oneThread_endProcess := builder_init("",
-		"sysEndProcess_oneThread :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {",
+		"sysEndProcess_oneThread :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS) {",
 	)
 	codegen_oneThread_process_fixed := builder_init("",
-		"sysProcessFixed_oneThread :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS, s: oz.OneshotThreadStatus) {",
+		"sysProcessFixed_oneThread :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS, s: oz.OneshotThreadStatus) {",
 	)
 	codegen_oneThread_initProcess_world := builder_init("",
-		"sysInitProcess_world_oneThread :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {",
+		"sysInitProcess_world_oneThread :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS) {",
 	)
 	codegen_oneThread_endProcess_world := builder_init("",
-		"sysEndProcess_world_oneThread :: proc(f: ^oz.FrameData, d: ^gs._SYSTEMS) {",
+		"sysEndProcess_world_oneThread :: proc(f: ^oz.FrameData, fl: ^oz.FrameDataLocal, d: ^gs._SYSTEMS) {",
 	)
 
 	
@@ -864,67 +865,67 @@ bpSystems :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.Al
 		
 		{ // PROCESS		
 			builder_write(&codegen_initProcess,"", 
-				"if gs.",a.name, ".s.init != nil do gs.",a.name, ".s.init(f,d,i)"
+				"if gs.",a.name, ".s.init != nil do gs.",a.name, ".s.init(f,fl,d,i)"
 			)
 			builder_write(&codegen_endProcess,"", 
-				"if gs.",a.name, ".s.end != nil do gs.",a.name, ".s.end(f,d,i)"
+				"if gs.",a.name, ".s.end != nil do gs.",a.name, ".s.end(f,fl,d,i)"
 			)
 			builder_write(&codegen_initProcess_world,"", 
-				"if gs.",a.name, ".s.init_world != nil do gs.",a.name, ".s.init_world(f,d,i)"
+				"if gs.",a.name, ".s.init_world != nil do gs.",a.name, ".s.init_world(f,fl,d,i)"
 			)
 			builder_write(&codegen_endProcess_world,"", 
-				"if gs.",a.name, ".s.end_world != nil do gs.",a.name, ".s.end_world(f,d,i)"
+				"if gs.",a.name, ".s.end_world != nil do gs.",a.name, ".s.end_world(f,fl,d,i)"
 			)		
 			builder_write(&codegen_process,"", 
-				"if gs.",a.name, ".s.process != nil do gs.",a.name, ".s.process(f,d,i)"
+				"if gs.",a.name, ".s.process != nil do gs.",a.name, ".s.process(f,fl,d,i)"
 			)
 			builder_write(&codegen_process_fixed,"", 
-				"if gs.",a.name, ".s.process_fixed != nil do gs.",a.name, ".s.process_fixed(f,d,i)"
+				"if gs.",a.name, ".s.process_fixed != nil do gs.",a.name, ".s.process_fixed(f,fl,d,i)"
 			)
 			builder_write(&codegen_process_late,"",
-				"if gs.",assignments[rev_len].name, ".s.process_late != nil do gs.",assignments[rev_len].name, ".s.process_late(f,d,i)"
+				"if gs.",assignments[rev_len].name, ".s.process_late != nil do gs.",assignments[rev_len].name, ".s.process_late(f,fl,d,i)"
 			)
 		}
 	
 		{ // ONESHOT PROCESS
 			builder_write(&codegen_one_initProcess,"", 
-				"if gs.",a.name, ".s.oneshot.init != nil do gs.",a.name, ".s.oneshot.init(f)"
+				"if gs.",a.name, ".s.oneshot.init != nil do gs.",a.name, ".s.oneshot.init(f,fl)"
 			)
 			builder_write(&codegen_one_endProcess,"", 
-				"if gs.",a.name, ".s.oneshot.end != nil do gs.",a.name, ".s.oneshot.end(f)"
+				"if gs.",a.name, ".s.oneshot.end != nil do gs.",a.name, ".s.oneshot.end(f,fl)"
 			)
 			builder_write(&codegen_one_initProcess_world,"", 
-				"if gs.",a.name, ".s.oneshot.init_world != nil do gs.",a.name, ".s.oneshot.init_world(f)"
+				"if gs.",a.name, ".s.oneshot.init_world != nil do gs.",a.name, ".s.oneshot.init_world(f,fl)"
 			)
 			builder_write(&codegen_one_endProcess_world,"", 
-				"if gs.",a.name, ".s.oneshot.end_world != nil do gs.",a.name, ".s.oneshot.end_world(f)"
+				"if gs.",a.name, ".s.oneshot.end_world != nil do gs.",a.name, ".s.oneshot.end_world(f,fl)"
 			)		
 			builder_write(&codegen_one_process,"", 
-				"if gs.",a.name, ".s.oneshot.process != nil do gs.",a.name, ".s.oneshot.process(f,d)"
+				"if gs.",a.name, ".s.oneshot.process != nil do gs.",a.name, ".s.oneshot.process(f,fl,d)"
 			)
 			builder_write(&codegen_one_process_fixed,"", 
-				"if gs.",a.name, ".s.oneshot.process_fixed != nil do gs.",a.name, ".s.oneshot.process_fixed(f,d)"
+				"if gs.",a.name, ".s.oneshot.process_fixed != nil do gs.",a.name, ".s.oneshot.process_fixed(f,fl,d)"
 			)
 			builder_write(&codegen_one_process_late,"",
-				"if gs.",assignments[rev_len].name, ".s.oneshot.process_late != nil do gs.",assignments[rev_len].name, ".s.oneshot.process_late(f,d)"
+				"if gs.",assignments[rev_len].name, ".s.oneshot.process_late != nil do gs.",assignments[rev_len].name, ".s.oneshot.process_late(f,fl,d)"
 			)
 		}
 
 		{ // ONESHOT THREAD PROCESS
 			builder_write(&codegen_oneThread_initProcess,"", 
-				"if gs.",a.name, ".s.oneshotThread.init != nil do gs.",a.name, ".s.oneshotThread.init(f,d)"
+				"if gs.",a.name, ".s.oneshotThread.init != nil do gs.",a.name, ".s.oneshotThread.init(f,fl,d)"
 			)
 			builder_write(&codegen_oneThread_endProcess,"", 
-				"if gs.",a.name, ".s.oneshotThread.end != nil do gs.",a.name, ".s.oneshotThread.end(f,d)"
+				"if gs.",a.name, ".s.oneshotThread.end != nil do gs.",a.name, ".s.oneshotThread.end(f,fl,d)"
 			)
 			builder_write(&codegen_oneThread_process_fixed,"", 
-				"if gs.",a.name, ".s.oneshotThread.process_fixed != nil do gs.",a.name, ".s.oneshotThread.process_fixed(f,d,s)"
+				"if gs.",a.name, ".s.oneshotThread.process_fixed != nil do gs.",a.name, ".s.oneshotThread.process_fixed(f,fl,d,s)"
 			)
 			builder_write(&codegen_oneThread_initProcess_world,"", 
-				"if gs.",a.name, ".s.oneshotThread.init_world != nil do gs.",a.name, ".s.oneshotThread.init_world(f,d)"
+				"if gs.",a.name, ".s.oneshotThread.init_world != nil do gs.",a.name, ".s.oneshotThread.init_world(f,fl,d)"
 			)
 			builder_write(&codegen_oneThread_endProcess_world,"", 
-				"if gs.",a.name, ".s.oneshotThread.end_world != nil do gs.",a.name, ".s.oneshotThread.end_world(f,d)"
+				"if gs.",a.name, ".s.oneshotThread.end_world != nil do gs.",a.name, ".s.oneshotThread.end_world(f,fl,d)"
 			)
 
 		}
@@ -1147,19 +1148,48 @@ bpWorlds :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.All
 			"#+feature dynamic-literals",
 			"package codegen",
 			"import oz \"../ozma\"",
-			"WorldProc :: proc(f: ^oz.FrameData)",
 			// "import \"internal:build\"",
 			sep="\n"
 		)
 	)
+
+	procedures_names :: []string{
+		"init",
+		"update",
+		"update_fixed",
+		"update_late",
+		"end",
+	}
 	procedures : strings.Builder
 	strings.write_string(&procedures, 
 		fmt.tprintln(
-			"procedures := [oz.WorldsNames][]WorldProc {",
+			fmt.tprint(
+				"WorldProcsEnum :: enum {",
+					get_procs_names({}, {","}),
+				"}"
+			),
+			"procedures := [oz.WorldsNames][WorldProcsEnum]oz.WorldProc {",
 			sep="\n"
 		)
 	)
 
+	get_procs_names :: proc(prefix: []any, suffix: []any, 
+			duplicate := enum { False, Before, After }.False
+		) -> string {
+		builder : strings.Builder
+		prefix := fmt.tprint(args=prefix, sep="")
+		suffix := fmt.tprint(args=suffix, sep="")
+		
+		for n,n_i in procedures_names {
+			if duplicate == .Before do strings.write_string(&builder, n)
+			strings.write_string(&builder, prefix)
+			strings.write_string(&builder, n)
+			strings.write_string(&builder, suffix)
+			if duplicate == .After do strings.write_string(&builder, n)
+		}
+		return strings.to_string(builder)
+	}
+	
 	strings.write_string(&out,"assets := oz.UniAssets{\n")
 		worlds_assetsIndex: map[string][dynamic]int
 		// worlds
@@ -1212,15 +1242,25 @@ bpWorlds :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.All
 					sep="",
 				)
 			)
-			strings.write_string(&procedures,
-				fmt.tprintln(".",w," = {",
-					"g",w,".init,",
-					"g",w,".update,",
-					"g",w,".update_fixed,",
-					"g",w,".update_late,",
-					"g",w,".end,",
-				"},",sep="")
-			)
+			{
+				strings.write_string(&procedures,
+					fmt.tprint("	.",w," = {",sep="")
+				)
+				for n,n_i in procedures_names {
+					strings.write_rune(&procedures,'\n')
+					strings.write_string(&procedures,"		.")
+					strings.write_string(&procedures,n)
+					strings.write_string(&procedures,"=g")
+					strings.write_string(&procedures,w)
+					strings.write_string(&procedures,".")
+					strings.write_string(&procedures,n)
+					strings.write_string(&procedures,",")
+				}
+				strings.write_string(&procedures,
+					fmt.tprint("\n	},\n",sep="")
+				)
+			}
+			
 		}
 	strings.write_string(&out, "}\n") // WorldsIndex
 
@@ -1230,16 +1270,20 @@ bpWorlds :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.All
 	strings.write_bytes(&worldsInline, worldsNames_withGlobal.buf[:])
 
 	strings.write_string(&procedures, "}\n")
-	// procedures_global : strings.Builder
-	strings.write_string(&procedures, 
-		fmt.tprintln(
-			"procedures_global := []WorldProc {",
-			"	g_global.init,g_global.update,g_global.update_fixed,g_global.update_late,g_global.end",
-			"}",
-			sep="\n"
+	{
+		strings.write_string(&procedures, "procedures_global := [WorldProcsEnum]oz.WorldProc {")
+		for n,n_i in procedures_names {
+			strings.write_rune(&procedures,'\n')
+			strings.write_string(&procedures,"	.")
+			strings.write_string(&procedures,n)
+			strings.write_string(&procedures,"=g_global.")
+			strings.write_string(&procedures,n)
+			strings.write_string(&procedures,",")
+		}
+		strings.write_string(&procedures,
+			fmt.tprint("\n}",sep="")
 		)
-	)
-
+	}
 
 	strings.write_bytes(&out, worldsImport.buf[:])
 	strings.write_bytes(&out, procedures.buf[:])
@@ -1325,6 +1369,26 @@ bpConfig :: proc(data: []Build_ProcData, data_index: int, allocator: runtime.All
 			sep=""
 		)
 	)
+
+	world_thread_str :: "WORLDS_THREAD_LIMIT :: "
+	world_thread_type := reflect.union_variant_typeid(worlds_map["thread_limit"])
+	if world_thread_type == int {
+		strings.write_string(&file, fmt.tprintln(
+				world_thread_str,
+				worlds_map["thread_limit"].(int),
+				sep=""
+			)
+		)
+	}
+	if world_thread_type == joy.percent {
+		strings.write_string(&file, fmt.tprintln(
+				world_thread_str,
+				worlds_map["thread_limit"].(joy.percent).scalar,
+				sep=""
+			)
+		)
+	}
+
 
 	out_path, _ := os.join_path({".build", "ozma"}, context.temp_allocator)
 	os.make_directory_all(out_path)

@@ -1,6 +1,7 @@
 #+feature dynamic-literals
 package main
 
+import "gamebuild:ozma"
 import "base:builtin"
 import "shared:tracy"
 import "vendor:glfw"
@@ -47,20 +48,20 @@ TRACY_CALLSTACK :: #config(TRACY_CALLSTACK, 0)
 TC_UPDATE :: 0x0044FF
 TC_UPDATE_FIXED :: 0x0099FF
 
-// cmd_buffer  : [3]RenderCMDBuffer
 model_buffer  : phos.HandleBox(oz.Obj)
 
-//\\ SYSTEMS SYNC //\\
-is_loading := true
-loading_mutex : sync.Mutex
-world_loaded  : oz.WorldsNames
-systems_sync  : []bool
-systems_count : []u64
-systems_time  : []f64
+SystemThread :: struct {
+	thread : ^th.Thread,
+	system : ^systems._SYSTEMS,
+	sync  : bool,
+	count : u64,
+	time  : f64,
+	loop : i64
+}
+system_threads : []SystemThread
 barrier_system  : sync.Barrier
 groupWait_system : sync.Wait_Group
 semaphore_system : sync.Sema
-sysThread_count : int
 
 //\\ RENDER //\\
 RENDERCMD_MAX_BUFFER :: 1*mem.Megabyte
@@ -77,12 +78,15 @@ main :: proc() {
 	// INIT
 	///////////////////////////
 	// Frame should be easy to reassemble
-	frame : oz.FrameData
-	frame.render._state = render.state
-	frame.worlds._state = gworld.state
+	F  : oz.FrameData
+	FL : oz.FrameDataLocal
+	FL.render._deltatime.fixed_dt = fixed_dt
+
+	F.render._state = render.state
+	F.worlds._state = gworld.state
 
 	oz.keyMap = render.state.input_default.keyMap
-	sync.mutex_lock(&loading_mutex)
+	sync.mutex_lock(&oz.loading_mutex)
 	AppInfo("Ozma Engine Application")
 	///////////////////////////
 
@@ -99,23 +103,23 @@ main :: proc() {
 	///////////////////////////
 	// One Window per frame!
 	win_name := render.state.window_info.name == "" ? "Ozma Engine" : render.state.window_info.name
-	frame.render.window.handle = oz.create_window(
+	F.render.window.handle = oz.create_window(
 		render.state.window_info.resolution.x,
 		render.state.window_info.resolution.y,
 		render.state.window_info.info,
 		win_name
 	); render.state.window_info.name = win_name
 	// force update on the render for evading NaN
-	frame.render.window.resolution = render.state.window_info.resolution
+	F.render.window.resolution = render.state.window_info.resolution
 
-	frame.graphic = oz.create_renderer(frame.render.window.handle, render_arena)
-	cmd_frames = oz.vkRenderCommand_Create(&frame.graphic.vulkan, cmd_arena)
+	F.graphic = oz.create_renderer(F.render.window.handle, render_arena)
+	cmd_frames = oz.vkRenderCommand_Create(&F.graphic.vulkan, cmd_arena)
 
 	{
 		shader_err : oz.VkCreateShaderError
 		info := shader.state.shaders
-		frame.render.shaderBox, shader_err = oz.vkCreate_shaders(
-			frame.graphic.device,
+		F.render.shaderBox, shader_err = oz.vkCreate_shaders(
+			F.graphic.device,
 			&info,
 			shader.state.config,
 			shader_arena
@@ -128,112 +132,103 @@ main :: proc() {
 	// HANDLE MAPS
 	///////////////////////////
 	phos.create(&model_buffer, RENDERCMD_MAX_BUFFER)
-	frame.render.models = model_buffer
+	F.render.models = model_buffer
 	_entity  : oz.EntityBox
-	///////////////////////////
-
-
-	///////////////////////////
-	// FRAMETIME
-	///////////////////////////
-  frame_i   :  int
-  time_now  := time.tick_now()
-  time_past := time_now
-  frametime :  f64
 	///////////////////////////
 
 	///////////////////////////
 	// THREADS
 	///////////////////////////
 	render_th  := th.create(render_proc, .High, "Render")
-	render_th.user_args[0] = &frame
+	render_th.user_args[0] = &F
 	th.start(render_th); defer th.destroy(render_th)
 	network_th := th.create(network_proc, .Low, "Network")
-	network_th.user_args[0] = &frame
+	network_th.user_args[0] = &F
 	th.start(network_th); defer th.destroy(network_th)
 
 	// Sys threads per Physical minus render + network
 	// dynamic scalabe?
-	sysThread_count = max(os.get_processor_core_count() - 3, 1)
-	systems_ths := make([]^th.Thread, sysThread_count)
-	// sync //
-	systems_sync = make([]bool, sysThread_count)
-	systems_loop_count := make([]i64, sysThread_count)
-	systems_count = make([]u64, sysThread_count)
-	systems_time = make([]f64, sysThread_count)
-	//////////
-	_systems := make([]systems._SYSTEMS, sysThread_count)
-	sysSplit := int(math.ceil(f32(oz.WORLDS_ENTITIES_LIMIT) / f32(sysThread_count)))
-	sync.barrier_init(&barrier_system, sysThread_count)
+	// TODO: i'm dumb ._.
+	//       just have a thread limit on a constant
+	// Sys Threads //
+	F.worlds.thread_count = max(os.get_processor_core_count() - 3, 1)
+
+	fmt.println(ozma.WORLDS_THREAD_LIMIT)
+	if ozma.WORLDS_THREAD_LIMIT >= 1 {
+		F.worlds.thread_count = max(int(ozma.WORLDS_THREAD_LIMIT), 1)
+	} else {
+		F.worlds.thread_count = max(int(math.round(f32(ozma.WORLDS_THREAD_LIMIT) * f32(F.worlds.thread_count))), 1)		
+	}
+	system_threads = make([]SystemThread, F.worlds.thread_count)
+	_systems := make([]systems._SYSTEMS, F.worlds.thread_count)
+	sysSplit := int(math.ceil(f32(oz.WORLDS_ENTITIES_LIMIT) / f32(F.worlds.thread_count)))
+	sync.barrier_init(&barrier_system, F.worlds.thread_count)
 
 	{
-		for &t,t_i in systems_ths {
+		for &t,t_i in system_threads {
+			t.system = &_systems[t_i]
+
 			name := strings.join({"System ",fmt.tprint(t_i)}, "", context.allocator)
-			t = th.create(systems_proc, .High, name)
-			t.user_args[0] = &frame
-			t.data = &T_SystemsData{
-				system = &_systems[t_i],
-				sync   = &systems_sync[t_i],
-				loops  = &systems_loop_count[t_i]
-			}
-			t.user_index = t_i
-			th.start(t)
+			t.thread = th.create(systems_proc, .High, name)
+			t.thread.user_args[0] = &F
+			t.thread.user_args[1] = &FL
+			t.thread.data = &t
+			t.thread.user_index = t_i
+			th.start(t.thread)
 		};
 	}
-	defer for &t,t_i in systems_ths { th.destroy(t) }
+	defer for t,t_i in system_threads { th.destroy(t.thread) }
 	///////////////////////////
 
 	{
-		cg.sysInitProcess_one(&frame)
+		cg.sysInitProcess_one(&F,&FL)
 		for &s,s_i in _systems {
-			cg.sysInitProcess_oneThread(&frame,&s)
+			cg.sysInitProcess_oneThread(&F,&FL,&s)
 			sysLen := cg.sysGet_len(&s)
 			for i in 0..<sysLen {
 				handle := cg.sysIterate(&s, i)
-				cg.sysInitProcess(&frame,&s,&handle)
+				cg.sysInitProcess(&F,&FL,&s,&handle)
 			}
 		}
 	}
-	sync.mutex_unlock(&loading_mutex)
+	sync.mutex_unlock(&oz.loading_mutex)
 
 	mouse_reset: oz._mouse_handler_reset
 	//////////////////////////////////////////////////
 	// UPDATE LOOP                                  //
 	//////////////////////////////////////////////////
-	for !oz.windowShouldClose(&frame) {
+	for !oz.windowShouldClose(&F) {
 		free_all(context.temp_allocator)
 
 		// WORLD SWITCHER //
-		if world_loaded != frame.worlds._state.initial_world || is_loading {
+		if oz.world_loaded != F.worlds._state.initial_world || oz.is_loading {
 			// LOAD WORLD AND UNLOADS PAST
 			// TODO: Do a proper semaphore or load as a stream and survive the memory overhead hell..
-			is_loading = true
-			sync.mutex_lock(&loading_mutex); defer sync.mutex_unlock(&loading_mutex)
+			oz.is_loading = true
+			sync.mutex_lock(&oz.loading_mutex); defer sync.mutex_unlock(&oz.loading_mutex)
 			for {
 				time.sleep(time.Millisecond)
 				count : int
-				for v in systems_sync { if v { count += 1 } }
-				if count >= sysThread_count { break }
-				fmt.println(sysThread_count, count)
-				fmt.println(systems_sync)
-				fmt.println(systems_loop_count)
+				for v in system_threads { if v.sync { count += 1 } }
+				if count >= F.worlds.thread_count { break }
+				fmt.println(F.worlds.thread_count, count)
 			}
 			ZoneN("World Loading")
 
 			{
-				cg.sysEndProcess_world_one(&frame)
+				cg.sysEndProcess_world_one(&F,&FL)
 				for &s,s_i in _systems {
-					cg.sysEndProcess_oneThread(&frame, &s)
+					cg.sysEndProcess_oneThread(&F,&FL, &s)
 					sysLen := cg.sysGet_len(&s)
 					for i in 0..<sysLen {
 						handle := cg.sysIterate(&s, i)
-						cg.sysEndProcess_world(&frame,&s,&handle)
+						cg.sysEndProcess_world(&F,&FL,&s,&handle)
 					}
 				}
 			}
 
-			cg.procedures_global[4](&frame)
-			cg.procedures[world_loaded][4](&frame)
+			cg.procedures_global[.end](&F,&FL)
+			cg.procedures[oz.world_loaded][.end](&F,&FL)
 
 			//////////
 			// TODO: Handle the mesh upload better
@@ -241,25 +236,25 @@ main :: proc() {
 			models_path: [dynamic]string
 			// textures:
 			// sounds:
-			for wi, wi_i in cg.worldsIndex[world_loaded] {
-		    append(&models_path, cg.assets[wi].path)
+			for wi, wi_i in cg.worldsIndex[oz.world_loaded] {
+    append(&models_path, cg.assets[wi].path)
 			}
 			
 			// fmt.print(state.current_world.models)
-			frame.worlds.models = oz.vkUpload_meshList(
-				&frame.graphic.vulkan, models_path[:], 
+			F.worlds.models = oz.vkUpload_meshList(
+				&F.graphic.vulkan, models_path[:], 
 				{
-					u64(frame.graphic.info.descriptorBuffer.combinedImageSamplerDescriptorSize),
-					frame.graphic.info.descriptorBuffer.descriptorBufferOffsetAlignment,
-					bool(frame.graphic.info.descriptorBuffer.combinedImageSamplerDescriptorSingleArray),
-					frame.render.descriptor_layout,
-					frame.render.texture.sampler,
+					u64(F.graphic.info.descriptorBuffer.combinedImageSamplerDescriptorSize),
+					F.graphic.info.descriptorBuffer.descriptorBufferOffsetAlignment,
+					bool(F.graphic.info.descriptorBuffer.combinedImageSamplerDescriptorSingleArray),
+					F.render.descriptor_layout,
+					F.render.texture.sampler,
 				}, context.allocator
 			)
 
 			phos.delete(&_entity)
 			phos.create(&_entity, oz.WORLDS_ENTITIES_LIMIT)
-			frame.worlds.entities = _entity
+			F.worlds.entities = _entity
 			
 			split_sum : int
 			for &s,s_i in _systems {
@@ -271,52 +266,36 @@ main :: proc() {
 
 				cg.sysInit(&s, split)
 			}
-			frame.worlds.systems = &_systems
+			F.worlds.systems = &_systems
 			//////////
-			
 
-			cg.procedures_global[0](&frame)
-			cg.procedures[world_loaded][0](&frame)
+			cg.procedures_global[.init](&F,&FL)
+			cg.procedures[oz.world_loaded][.init](&F,&FL)
 			{
-				cg.sysInitProcess_world_one(&frame)
+				cg.sysInitProcess_world_one(&F,&FL)
 				for &s,s_i in _systems {
-					cg.sysInitProcess_oneThread(&frame, &s)
+					cg.sysInitProcess_oneThread(&F,&FL,&s)
 					sysLen := cg.sysGet_len(&s)
 					for i in 0..<sysLen {
 						handle := cg.sysIterate(&s, i)
-						cg.sysInitProcess_world(&frame,&s,&handle)
+						cg.sysInitProcess_world(&F,&FL,&s,&handle)
 					}
 				}
 			}
 
-			is_loading = false; world_loaded = frame.worlds._state.initial_world
+			oz.is_loading = false; oz.world_loaded = F.worlds._state.initial_world
 		}
 		////////////////////
 		defer FrameMark("Update")	
 		ZoneN("Main Loop")
 		{
 			ZoneN("Init")
-
-	    time_past = time_now
-	    time_now = time.tick_now()
-	    frame.render.dt.value = time.duration_milliseconds(time.tick_diff(time_past,time_now))
-	    frametime += frame.render.dt.value
-	    frame.render.dt.overtime += frame.render.dt.value
-	    frame.render.dt.fixed_overtime += fixed_dt
-	    frame.render.dt.fixed = fixed_dt
-	
-	    frame.render.dt32 = {
-	    	cast(f32)frame.render.dt.fixed,
-	    	cast(f32)frame.render.dt.fixed_overtime,
-	    	cast(f32)frame.render.dt.value,
-	    	cast(f32)frame.render.dt.overtime,
-	    }
-	    frame.render.dt16 = {
-	    	cast(f16)frame.render.dt.fixed,
-	    	cast(f16)frame.render.dt.fixed_overtime,
-	    	cast(f16)frame.render.dt.value,
-	    	cast(f16)frame.render.dt.overtime,
-	    }
+			deltatime_calc(
+				&FL.render._deltatime,
+				&FL.render.dt,
+				&FL.render.dt32,
+				&FL.render.dt16,
+			)
 		}
     
 		oz.pollEvents()
@@ -327,51 +306,51 @@ main :: proc() {
 		)
 		oz._mouse_handler(&oz.mouse,&mouse_reset)
 
-    // frame_i = (frame_i + 1) % oz.RENDER_FRAME_IN_FLIGHT
-    // frame.render.cmd = cmd_frames[frame_i]
+  // frame_i = (frame_i + 1) % oz.RENDER_FRAME_IN_FLIGHT
+  // frame.render.cmd = cmd_frames[frame_i]
 
-    // systems_data := cast(^gs._SYSTEMS)state.frame.worlds.systems
-    {
-    	ZoneNC("Update", TC_UPDATE)
-			cg.procedures_global[1](&frame)
-			cg.procedures[world_loaded][1](&frame)
-    }
-    
-    {
-			for {
-				if frametime > 0 {
-    			ZoneNC("Update Fixed", TC_UPDATE_FIXED)
-					oz._input_handler(
-						&oz._input_callbackList_fixed_old,
-						&oz._input_callbackList_fixed,
-						&oz.inputs_fixed_old,
-					)
-					
-					frametime -= fixed_dt
+  // systems_data := cast(^gs._SYSTEMS)state.frame.worlds.systems
+  {
+  	ZoneNC("Update", TC_UPDATE)
+			cg.procedures_global[.update](&F,&FL)
+			cg.procedures[oz.world_loaded][.update](&F,&FL)
+  }
+  
+  {
+		for {
+			if FL.render._deltatime.fixed_accum > 0 {
+				defer FL.render._deltatime.fixed_accum -= fixed_dt
+ 			ZoneNC("Update Fixed", TC_UPDATE_FIXED)
+				oz._input_handler(
+					&oz._input_callbackList_fixed_old,
+					&oz._input_callbackList_fixed,
+					&oz.inputs_fixed_old,
+				)
+				
 	
-					// fmt.print(frametime)
-					cg.procedures_global[2](&frame)
-					cg.procedures[world_loaded][2](&frame)
-				} else { break }
-			}
-    }
+				// fmt.print(frametime)
+				cg.procedures_global[.update_fixed](&F,&FL)
+				cg.procedures[oz.world_loaded][.update_fixed](&F,&FL)
+			} else { break }
+		}
+  }
 
-    {
-    	ZoneNC("Update Late", TC_UPDATE)
-			cg.procedures_global[3](&frame)
-			cg.procedures[world_loaded][3](&frame)
-    }
+  {
+  	ZoneNC("Update Late", TC_UPDATE)
+			cg.procedures_global[.update_late](&F,&FL)
+			cg.procedures[oz.world_loaded][.update_late](&F,&FL)
+  }
 		// time.sleep(500*time.Millisecond)
 	}
 
 	{
-		cg.sysEndProcess_one(&frame)
+		cg.sysEndProcess_one(&F,&FL)
 		for &s,s_i in _systems {
-			cg.sysEndProcess_oneThread(&frame, &s)
+			cg.sysEndProcess_oneThread(&F,&FL, &s)
 			sysLen := cg.sysGet_len(&s)
 			for i in 0..<sysLen {
 				handle := cg.sysIterate(&s, i)
-				cg.sysEndProcess(&frame,&s,&handle)
+				cg.sysEndProcess(&F,&FL,&s,&handle)
 			}
 		}
 	}
@@ -397,15 +376,16 @@ T_RenderData :: struct{
 	///////////////////////////
 	// INIT
 	///////////////////////////
-	sync.mutex_lock(&loading_mutex)
-	F_REF := cast(^oz.FrameData)t.user_args[0]
-	F : oz.FrameData
-	mem.copy(&F, F_REF, size_of(oz.FrameData))
+	sync.mutex_lock(&oz.loading_mutex)
+	F := cast(^oz.FrameData)t.user_args[0]
+	FL : oz.FrameDataLocal
+	FL.render._deltatime.fixed_dt = fixed_dt
 	///////////////////////////
 
 	///////////////////////////
 	// ARENAS
 	///////////////////////////
+	// TODO : Make coarse
 	swapchain_arena : [3]^MemArena
 	for &m in swapchain_arena {
 		m = create_arena(10*mem.Kilobyte)
@@ -415,95 +395,62 @@ T_RenderData :: struct{
 	///////////////////////////
 	// RENDERER
 	///////////////////////////
-	sz := oz.getResolution(F_REF.render.window)
-	F_REF.graphic.swapchain = oz.vkSwapchain_Create(
-		&F_REF.graphic.vulkan, F_REF.graphic.surface, 
+	sz := oz.getResolution(F.render.window)
+	F.graphic.swapchain = oz.vkSwapchain_Create(
+		&F.graphic.vulkan, F.graphic.surface, 
 		{ 
 			sz,
-			F_REF.graphic.formats.capabilities.currentTransform,
-			F_REF.graphic.formats.capabilities.minImageCount,
+			F.graphic.formats.capabilities.currentTransform,
+			F.graphic.formats.capabilities.minImageCount,
 		}, swapchain_arena[0]
 	)
 	swapchainOld: oz.Swapchain
-	///////////////////////////
 
-	///////////////////////////
-	// FRAMETIME
-	///////////////////////////
-	dt:   oz.DeltaTime64
-	dt32: oz.DeltaTime32
-	dt16: oz.DeltaTime16
-	
-  frame_i   :  int
-  time_now  := time.tick_now()
-  time_past := time_now
+	frame_i : int
 	///////////////////////////
 	
 	for {
 		// HEADER //////////////////
-		if is_loading {
-			sync.mutex_lock(&loading_mutex)
-		}; defer sync.mutex_unlock(&loading_mutex)
-		if oz._swapchainRecriation(F_REF, &swapchainOld, swapchain_arena[swapchain_index]) {
+		if oz.is_loading {
+			sync.mutex_lock(&oz.loading_mutex)
+		}; defer sync.mutex_unlock(&oz.loading_mutex)
+		if oz._swapchainRecriation(F, &swapchainOld, swapchain_arena[swapchain_index]) {
 			swapchain_index = (swapchain_index + 1) % (len(swapchain_arena))
 			idx := (len(swapchain_arena) - (swapchain_index+1))
 
 			free_all(swapchain_arena[idx])
 			mem.arena_free_all(&swapchain_arena[idx].arena)
 		}
-
 		///////////////////////////
+
 		free_all(context.temp_allocator)
 		defer FrameMark()
 		ZoneN("Render Loop")
-		mem.copy(&F, F_REF, size_of(oz.FrameData))
 
 		///////////////////////////
-		// DELTA TIME
+		// FRAME LOCAL
 		///////////////////////////
-    time_past = time_now
-    time_now = time.tick_now()
-    dt.value = time.duration_milliseconds(time.tick_diff(time_past,time_now))
-    dt.overtime += dt.value
-    dt.fixed_overtime += fixed_dt
-    dt.fixed = fixed_dt
-    
-    dt32 = {
-    	cast(f32)dt.fixed,
-    	cast(f32)dt.fixed_overtime,
-    	cast(f32)dt.value,
-    	cast(f32)dt.overtime,
-    }
-    dt16 = {
-    	cast(f16)dt.fixed,
-    	cast(f16)dt.fixed_overtime,
-    	cast(f16)dt.value,
-    	cast(f16)dt.overtime,
-    }
+		deltatime_calc(
+			&FL.render._deltatime,
+			&FL.render.dt,
+			&FL.render.dt32,
+			&FL.render.dt16,
+		)
 
-    F.render.dt = dt
-    F.render.dt32 = dt32
-    F.render.dt16 = dt16
-		///////////////////////////
+  frame_i = (frame_i + 1) % oz.RENDER_FRAME_IN_FLIGHT
+  FL.render.cmd = cmd_frames[frame_i]
+  ///////////////////////////
 
-    F.render.dt = dt
-    F.render.dt32 = dt32
-    F.render.dt16 = dt16
+  img_idx := oz.vkDraw_prepare(F,&FL)
+  for f in render.drawCMDS { f(F,&FL, img_idx) }
+  oz.vkDraw_present(F,&FL, &img_idx)
 
-    frame_i = (frame_i + 1) % oz.RENDER_FRAME_IN_FLIGHT
-    F.render.cmd = cmd_frames[frame_i]
+  // TEMPORARY RENDER FPS LIMITER
+  // TODO: Expose this on the main lib
+  frame_limiter(FL.render._deltatime.time_now, fixed_dt_2x)
+ 	// time.sleep(cast(time.Duration)(((fixed_dt_over - time.duration_milliseconds(time.tick_since(time_now))))*f64(time.Millisecond)))
 
-
-    img_idx := oz.vkDraw_prepare(&F)
-    for f in render.drawCMDS { f(F, img_idx) }
-    oz.vkDraw_present(&F, &img_idx)
-
-    // TEMPORARY RENDER FPS LIMITER
-    // TODO: Expoxe this
-    frame_limiter(time_now, fixed_dt_2x)
-   	// time.sleep(cast(time.Duration)(((fixed_dt_over - time.duration_milliseconds(time.tick_since(time_now))))*f64(time.Millisecond)))
-
-    // fmt.println(dt.value)
+  // fmt.println(dt.value)
 	} // for
 } // render_proc
 
@@ -516,79 +463,55 @@ network_proc  :: proc(t: ^th.Thread) {
 		time.sleep(500*time.Millisecond)
 	}
 }
-T_SystemsData :: struct{
-	system : ^systems._SYSTEMS,
-	sync   : ^bool,
-	loops  : ^i64
-}; systems_proc :: proc(t: ^th.Thread) {
+
+systems_proc :: proc(t: ^th.Thread) {
 	///////////////////////////
 	// INIT
 	///////////////////////////
-	F_REF := cast(^oz.FrameData)t.user_args[0]
-	F : oz.FrameData
-	mem.copy(&F, F_REF, size_of(oz.FrameData))
-	data  := cast(^T_SystemsData)t.data
-	///////////////////////////
-	
-	///////////////////////////
-	// FRAMETIME
-	///////////////////////////
-	dt:   oz.DeltaTime64
-	dt32: oz.DeltaTime32
-	dt16: oz.DeltaTime16
-	
-  frame_i   :  int
-  time_now  := time.tick_now()
-  time_past := time_now
-  frametime :  f64
+	F := cast(^oz.FrameData)t.user_args[0]
+	FL : oz.FrameDataLocal
+	FL.render._deltatime.fixed_dt = fixed_dt
+	data  := cast(^SystemThread)t.data
 	///////////////////////////
 
 	fixed_loop_count : u64
 	sync.wait_group_add(&groupWait_system, 1)
+	// TODO : DeltaTime is long cus is_loading is making it longer
+	// 		     needs confirmation with simulation/heavy scenarios
 	for {
-		// HEADER //////////////////
-		data.loops^ += 1
+		///////////////////////////
+		// HEADER
+		///////////////////////////
+		data.loop += 1
+		sync_runned : bool
 		for {
-			data.sync^ = true
+			data.sync = true
 
-			if is_loading { time.sleep(time.Millisecond) } else { break }
+			if oz.is_loading { 
+				time.sleep(time.Millisecond)
+				sync_runned = true
+			} else {
+				// if sync_runned do FL.render._deltatime.time_now = time.tick_now()
+				///////////////////////////
+				// DELTA TIME
+				///////////////////////////
+				deltatime_calc(
+					&FL.render._deltatime,
+					&FL.render.dt,
+					&FL.render.dt32,
+					&FL.render.dt16,
+				)
+				///////////////////////////
+				break 
+			}
 		}
-		data.sync^ = false
+		data.sync = false
+		///////////////////////////
 
 		///////////////////////////
 		free_all(context.temp_allocator)
 		{
 			ZoneN("Init")
-			mem.copy(&F, F_REF, size_of(oz.FrameData))
-
-	
-			///////////////////////////
-			// DELTA TIME
-			///////////////////////////
-	    time_past = time_now
-	    time_now = time.tick_now()
-	    dt.value = time.duration_milliseconds(time.tick_diff(time_past,time_now))
-	    frametime += dt.value
-	    dt.overtime += dt.value
-	    dt.fixed_overtime += fixed_dt
-	    dt.fixed = fixed_dt
-	
-	    dt32 = {
-	    	cast(f32)dt.fixed,
-	    	cast(f32)dt.fixed_overtime,
-	    	cast(f32)dt.value,
-	    	cast(f32)dt.overtime,
-	    }
-	    dt16 = {
-	    	cast(f16)dt.fixed,
-	    	cast(f16)dt.fixed_overtime,
-	    	cast(f16)dt.value,
-	    	cast(f16)dt.overtime,
-	    }
-	
-	    F.render.dt = dt
-	    F.render.dt32 = dt32
-	    F.render.dt16 = dt16
 		}
 		ZoneN("System Loop")
 		///////////////////////////
@@ -603,21 +526,21 @@ T_SystemsData :: struct{
 
 		{
 			ZoneNC("Update", TC_UPDATE)
-			cg.sysProcess_one(&F,data.system)
+			cg.sysProcess_one(F,&FL,data.system)
 			sysLen := cg.sysGet_len(data.system)
 			for i in 0..<sysLen {
 				handle := cg.sysIterate(data.system, i)
-				cg.sysProcess(&F,data.system,&handle)
+				cg.sysProcess(F,&FL,data.system,&handle)
 			}
 		}
 		
 		{
 			for {
-				if frametime > 0 {
+				if FL.render._deltatime.fixed_accum > 0 {
+					defer FL.render._deltatime.fixed_accum -= fixed_dt
 					fixed_loop_count += 1
 					@(static) global_fixed_loop_count : u64
-					systems_count[t.user_index] = fixed_loop_count
-					defer frametime -= fixed_dt_over
+					system_threads[t.user_index].count = fixed_loop_count
 					fixed_Z := ZoneNC("Update Fixed", TC_UPDATE_FIXED)
 					fixez_Z_color : u32 = 0xFFAA00
 					defer ZoneColor(fixed_Z,fixez_Z_color)
@@ -637,11 +560,11 @@ T_SystemsData :: struct{
 						// 
 						sysFixed_dt       := time.tick_now()
 						sysFixed_dt_after :  time.Tick
-						cg.sysProcessFixed_one(&F,data.system)
+						cg.sysProcessFixed_one(F,&FL,data.system)
 						sysLen := cg.sysGet_len(data.system)
 						for i in 0..<sysLen {
 							handle := cg.sysIterate(data.system, i)
-							cg.sysProcessFixed(&F,data.system,&handle)
+							cg.sysProcessFixed(F,&FL,data.system,&handle)
 						}
 						sysFixed_dt_after = time.tick_now()
 						diff_ms := time.duration_milliseconds(
@@ -651,25 +574,27 @@ T_SystemsData :: struct{
 							)
 						)
 						
-						fixed_Z := ZoneNC("Semaphore", 0x999999)
-						systems_time[t.user_index] = diff_ms
-						sync.barrier_wait(&barrier_system)
+						system_threads[t.user_index].time = diff_ms
+						{
+							fixed_Z := ZoneNC("Semaphore", 0x999999)
+							sync.barrier_wait(&barrier_system)
+						}
 
 						status : oz.OneshotThreadStatus
 						status.num = t.user_index
 						
 						dt_worst : f64
 						th_worst : int
-						dt_best : f64 = max(f64)
-						th_best : int
-						for ti,ti_i in systems_time {
-							if ti >= dt_worst {
-								dt_worst = ti
-								th_worst = ti_i
+						dt_best  : f64 = max(f64)
+						th_best  : int
+						for st,st_i in system_threads {
+							if st.time >= dt_worst {
+								dt_worst = st.time
+								th_worst = st_i
 							}
-							if ti <= dt_best {
-								dt_best = ti
-								th_best = ti_i
+							if st.time <= dt_best {
+								dt_best = st.time
+								th_best = st_i
 							}
 						}
 
@@ -695,7 +620,7 @@ T_SystemsData :: struct{
 						}
 						{
 							fixed_Z := ZoneNC("One Thread", 0x990099)
-							cg.sysProcessFixed_oneThread(&F, data.system, status)
+							cg.sysProcessFixed_oneThread(F,&FL, data.system, status)
 						}
 						/*
 						_, th_worst_check := sync.atomic_compare_exchange_strong(&th_worst, t.id, th_worst)
@@ -734,14 +659,14 @@ T_SystemsData :: struct{
 
 		{
 			ZoneNC("Update Late", TC_UPDATE)
-			cg.sysProcess_late_one(&F,data.system)
+			cg.sysProcess_late_one(F,&FL,data.system)
 			sysLen := cg.sysGet_len(data.system)
 			for i in 0..<sysLen {
 				handle := cg.sysIterate(data.system, i)
-				cg.sysProcess_late(&F,data.system,&handle)
+				cg.sysProcess_late(F,&FL,data.system,&handle)
 			}
 		}
-  	frame_limiter(time_now, fixed_dt_8x)
+  	frame_limiter(FL.render._deltatime.time_now, fixed_dt_8x)
 	} // for
 } // system_proc
 
@@ -761,6 +686,39 @@ create_arena :: proc(size: int) -> (^MemArena) {
 }
 
 frame_limiter :: proc(start: time.Tick, value: f64) {
-  time.sleep(cast(time.Duration)(((value - time.duration_milliseconds(time.tick_since(start))))*f64(time.Millisecond)))
+ time.sleep(cast(time.Duration)(((value - time.duration_milliseconds(time.tick_since(start))))*f64(time.Millisecond)))
+}
+
+deltatime_calc :: proc(
+	data: ^oz.DeltaTimeData,
+	dt:   ^oz.DeltaTime64,
+	dt32: ^oz.DeltaTime32,
+	dt16: ^oz.DeltaTime16
+) {
+	// Resolve DeltaTime 
+	data.time_past = data.time_past == {} ? time.tick_now() : data.time_now
+	data.time_now = time.tick_now()
+	dt.value = time.duration_milliseconds(
+		time.tick_diff( data.time_past, data.time_now )
+ )
+ data.fixed_accum += dt.value
+ 
+ // Update DeltaTime
+ dt.overtime += dt.value
+ dt.fixed_overtime += data.fixed_dt
+ dt.fixed = data.fixed_dt
+ 
+ dt32^ = {
+ 	cast(f32)dt.fixed,
+ 	cast(f32)dt.fixed_overtime,
+ 	cast(f32)dt.value,
+ 	cast(f32)dt.overtime,
+ }
+ dt16^ = {
+ 	cast(f16)dt.fixed,
+ 	cast(f16)dt.fixed_overtime,
+ 	cast(f16)dt.value,
+ 	cast(f16)dt.overtime,
+ }
 }
 ///////////////////////////

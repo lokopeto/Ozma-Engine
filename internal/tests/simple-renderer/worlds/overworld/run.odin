@@ -6,19 +6,19 @@ import "core:math"
 import "core:strings"
 import oz "ozma:."
 
-init :: proc(frame: ^oz.FrameData, vulkan: ^oz.Vulkan){
+init :: proc(frame: ^oz.FrameData){
 
 }
-update :: proc(frame: ^oz.FrameData, vulkan: ^oz.Vulkan){
+update :: proc(frame: ^oz.FrameData){
 
 }
-update_fixed :: proc(frame: ^oz.FrameData, vulkan: ^oz.Vulkan){
+update_fixed :: proc(frame: ^oz.FrameData){
 
 }
-update_late :: proc(frame: ^oz.FrameData, vulkan: ^oz.Vulkan){
+update_late :: proc(frame: ^oz.FrameData){
 
 }
-end :: proc(frame: ^oz.FrameData, vulkan: ^oz.Vulkan){
+end :: proc(frame: ^oz.FrameData){
 
 }
 	// spawn(.test, {

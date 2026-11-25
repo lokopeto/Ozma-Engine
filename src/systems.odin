@@ -1,38 +1,53 @@
 package oz
 
+import "core:sync"
+import "core:encoding/uuid"
 import hm "core:container/handle_map"
 import phos "shared:Phos"
+
+///////////////////////////
+// FRAME
+///////////////////////////
+FrameData :: struct {
+	render : RenderFrame,
+	worlds : WorldFrame,
+	graphic : GraphicContext,
+}
+FrameDataLocal :: struct {
+	render : RenderFrameLocal,
+}
+///////////////////////////
 
 // $D == data of the system, assignment is used as a default
 System :: struct($S, $I: typeid) {
 	// enable running system on network entities
 	shared: bool,
 
-	init:            proc(f: ^FrameData, data: ^S, index: ^I),
-	process:         proc(f: ^FrameData, data: ^S, index: ^I),
-	process_fixed:   proc(f: ^FrameData, data: ^S, index: ^I),
-	process_late:    proc(f: ^FrameData, data: ^S, index: ^I),
-	end:             proc(f: ^FrameData, data: ^S, index: ^I),
+	init:            proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S, index: ^I),
+	process:         proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S, index: ^I),
+	process_fixed:   proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S, index: ^I),
+	process_late:    proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S, index: ^I),
+	end:             proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S, index: ^I),
 
-	init_world:      proc(f: ^FrameData, data: ^S, index: ^I),
-	end_world:       proc(f: ^FrameData, data: ^S, index: ^I),
+	init_world:      proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S, index: ^I),
+	end_world:       proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S, index: ^I),
 	oneshot: struct {
-		init:          proc(f: ^FrameData),
-		process:       proc(f: ^FrameData, data: ^S),
-		process_fixed: proc(f: ^FrameData, data: ^S),
-		process_late:  proc(f: ^FrameData, data: ^S),
-		end:           proc(f: ^FrameData),
+		init:           proc(f: ^FrameData, fl: ^FrameDataLocal),
+		process:        proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S),
+		process_fixed:  proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S),
+		process_late:   proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S),
+		end:            proc(f: ^FrameData, fl: ^FrameDataLocal),
 	
-		init_world:    proc(f: ^FrameData),
-		end_world:     proc(f: ^FrameData),
+		init_world:     proc(f: ^FrameData, fl: ^FrameDataLocal),
+		end_world:      proc(f: ^FrameData, fl: ^FrameDataLocal),
 	},
 	oneshotThread: struct {
-		init:          proc(f: ^FrameData, data: ^S),
-		process_fixed: proc(f: ^FrameData, data: ^S, status: OneshotThreadStatus),
-		end:           proc(f: ^FrameData, data: ^S),
+		init:           proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S),
+		process_fixed:  proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S, status: OneshotThreadStatus),
+		end:            proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S),
 	
-		init_world:    proc(f: ^FrameData, data: ^S),
-		end_world:     proc(f: ^FrameData, data: ^S),
+		init_world:     proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S),
+		end_world:      proc(f: ^FrameData, fl: ^FrameDataLocal, data: ^S),
 	}
 }
 
@@ -60,16 +75,27 @@ OneshotThreadStatus :: struct {
 	num: int,
 }
 
-DrawCMD :: proc(frame: FrameData, f_index: u32)
+DrawCMD :: proc(frame: ^FrameData, frameLocal: ^FrameDataLocal, f_index: u32)
 DrawCMDS :: []DrawCMD
 
-FrameData :: struct {
-	render : RenderFrame,
-	worlds : WorldFrame,
-	graphic : GraphicContext,
-}
 
 // load_world: proc(vulkan: ^Vulkan, frame: ^FrameData, world: string)
+
+///////////////////////////
+// ENTITY
+///////////////////////////
+Entity :: struct {
+	systems: SystemsToggler,
+	
+	_internal: struct {
+		systems_index: SystemsIndex,
+		id_local: uuid.Identifier,
+		id_public: uuid.Identifier,
+	},
+	models: [dynamic; 32]phos.Handle,
+}
+
+EntityBox :: phos.HandleBox(Entity)
 
 entity_spawn :: proc() {}
 entity_despawn :: proc() {}
@@ -118,3 +144,13 @@ entity_obj_remove_index :: proc(m: ^phos.HandleBox(Obj), e: ^Entity, index: uint
 	}
 	return false
 }
+///////////////////////////
+
+
+///////////////////////////
+// SYSTEMS SYNC
+///////////////////////////
+is_loading := true
+loading_mutex : sync.Mutex
+world_loaded  : WorldsNames
+///////////////////////////
